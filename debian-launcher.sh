@@ -50,16 +50,16 @@ fi
     pulseaudio --start --exit-idle-time=-1
     pacmd load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1 auth-anonymous=1
     virgl_test_server_android & V=$!
-    proot-distro login debian --user __USERNAME__ --shared-tmp -- bash -c "export DISPLAY=:0 PULSE_SERVER=tcp:127.0.0.1 GALLIUM_DRIVER=virpipe MESA_GL_VERSION_OVERRIDE=4.0; $SESSION_CMD"
+    proot-distro login debian --user USERNAME --shared-tmp -- bash -c "export DISPLAY=:0 PULSE_SERVER=tcp:127.0.0.1 GALLIUM_DRIVER=virpipe MESA_GL_VERSION_OVERRIDE=4.0; $SESSION_CMD"
     kill $X $V 2>/dev/null; pulseaudio --kill
 } >/dev/null 2>&1 &
 
 tput civis; stty -echo
 trap 'tput cnorm; stty echo 2>/dev/null' EXIT
 clr() { printf "\033[3A\r\033[J"; }
-trap 'clr; pkill -9 -f termux.x11 2>/dev/null; killall -9 pulseaudio virgl_test_server_android 2>/dev/null; termux-toast "Aborted."; echo "Aborted."; exit 1' INT
+trap 'clr; pkill -9 -f termux.x11 2>/dev/null; killall -9 pulseaudio virgl_test_server_android 2>/dev/null; echo "Aborted."; exit 1' INT
 trap '' TSTP QUIT HUP
-launch() { clr; am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1; termux-toast "Debian Launched!"; echo "Debian Launched!"; exit; }
+launch() { clr; am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1; echo "Debian Launched!"; exit; }
 run_countdown() {
     local secs=$1
     local cols=$(tput cols 2>/dev/null || echo 80)
