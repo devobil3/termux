@@ -17,9 +17,6 @@ read -s -p "Enter root password (Press Enter to reuse user password): " r_pw </d
 
 start_time=$(date +%s)
 
-pkg install -y termux-api
-
-termux-toast "Starting Debian installation for $user..."
 
 tz=$(getprop persist.sys.timezone); tz=${tz:-${TZ:-Etc/UTC}}
 loc=$(getprop persist.sys.locale);  loc="${loc:-en_US}"; loc="${loc//-/_}.UTF-8"
@@ -28,9 +25,7 @@ export DEBIAN_FRONTEND=noninteractive
 pkg upgrade -y -o Dpkg::Options::="--force-confold"
 
 pkg i -y x11-repo
-pkg i -y termux-x11-nightly proot-distro pulseaudio virglrenderer-android termux-api
-
-termux-toast "Termux dependencies installed successfully"
+pkg i -y termux-x11-nightly proot-distro pulseaudio virglrenderer-android
 
 pd i debian
 
@@ -53,12 +48,10 @@ pd login debian --shared-tmp -- sh -c '
     locale-gen && echo "LANG=$l" > /etc/locale.conf
 ' bash "$user" "$pw" "$r_pw" "$tz" "$loc"
 
-termux-toast "Debian base system configured"
-
 # Replaced the embedded EOF script block with a download command from GitHub using the "GITHUB" placeholder
 curl -sL "https://raw.githubusercontent.com/devobil3/termux/refs/heads/main/debian-laucher.sh" > "$PREFIX/bin/debian"
 
-sed -i "s/__USERNAME__/$user/g" "$PREFIX/bin/debian"
+sed -i "s/USERNAME/$user/g" "$PREFIX/bin/debian"
 
 chmod +x "$PREFIX/bin/debian"
 
@@ -67,5 +60,4 @@ elapsed=$((end_time - start_time))
 elapsed_min=$((elapsed / 60))
 elapsed_sec=$((elapsed % 60))
 
-termux-toast "Installation Complete in ${elapsed_min}m ${elapsed_sec}s! Launch with 'debian'"
 echo "Installation Complete in ${elapsed_min}m ${elapsed_sec}s! You can now start Debian by typing 'debian' in your terminal."
