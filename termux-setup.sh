@@ -49,7 +49,7 @@ pd login debian --shared-tmp -- sh -c '
 ' bash "$user" "$pw" "$r_pw" "$tz" "$loc"
 
 # Replaced the embedded EOF script block with a download command from GitHub using the "GITHUB" placeholder
-curl -sL "https://raw.githubusercontent.com/devobil3/termux/refs/heads/main/debian-laucher.sh" > "$PREFIX/bin/debian"
+curl -sL "https://raw.githubusercontent.com/devobil3/termux/refs/heads/main/debian-launcher.sh" > "$PREFIX/bin/debian"
 
 sed -i "s/USERNAME/$user/g" "$PREFIX/bin/debian"
 
