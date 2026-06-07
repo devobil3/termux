@@ -37,20 +37,9 @@ cleanup() {
   printf "\033[?25h" # Restore cursor if cancelled
   [[ -n "${BUILD_DIR:-}" && -d "$BUILD_DIR" ]] && rm -rf "$BUILD_DIR"
   if [[ "${INSTALL_SUCCESS:-0}" -ne 1 ]]; then
-    # FAILURE CLEANUP: Restore backup if exists, otherwise delete failed installation files
-    if [[ -n "${AGY_BAK:-}" && -f "$AGY_BAK" ]]; then
-      mv -f "$AGY_BAK" "$INSTALL_BIN_DIR/agy" || true
-    else
-      rm -f "$INSTALL_BIN_DIR/agy" || true
-    fi
-
-    if [[ -n "${AGY_VA39_BAK:-}" && -f "$AGY_VA39_BAK" ]]; then
-      mv -f "$AGY_VA39_BAK" "$INSTALL_BIN_DIR/agy.va39" || true
-    else
-      rm -f "$INSTALL_BIN_DIR/agy.va39" || true
-    fi
+    [[ -n "${AGY_BAK:-}" && -f "$AGY_BAK" ]] && mv -f "$AGY_BAK" "$INSTALL_BIN_DIR/agy" || true
+    [[ -n "${AGY_VA39_BAK:-}" && -f "$AGY_VA39_BAK" ]] && mv -f "$AGY_VA39_BAK" "$INSTALL_BIN_DIR/agy.va39" || true
   else
-    # SUCCESS: Keep installed files, clean up backup files permanently
     [[ -n "${AGY_BAK:-}" && -f "$AGY_BAK" ]] && rm -f "$AGY_BAK" || true
     [[ -n "${AGY_VA39_BAK:-}" && -f "$AGY_VA39_BAK" ]] && rm -f "$AGY_VA39_BAK" || true
   fi
@@ -128,45 +117,45 @@ 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
-OzI7MTk4Oz7eKWhBtbMG0bWzM4OzI7MTk1OzY3OzU0beKWhBtbMG0gICAgICAgICAbWzBtCiAgIC
-AgICAgG1szODsyOzEwNjsxNjE7ODdt4paEG1szODsyOzExMzsxNzg7MTE2OzQ4OzI7MTQ4OzE4NT
-s4OG3iloQbWzM4OzI7MTA5OzE2NDsxMzA7NDg7MjsxNDg7MTY4Ozk1beKWhBtbMzg7MjsxMTg7MT
-Q3OzEzNzs0ODsyOzE1OTsxNDg7OTlt4paEG1szODsyOzE0MDsxMzA7MTM1OzQ4OzI7MTgwOzEyNj
-s5N23iloQbWzM4OzI7MTY4OzExMjsxMjI7NDg7MjsyMDI7MTA1Ozg5beKWhBtbMzg7MjsxOTY7OT
-Y7MTA2OzQ4OzI7MjIzOzg3Ozc5beKWhBtbMG0bWzM4OzI7MTc2OzY4Ozc0beKWhBtbMG0gICAgIC
-AgIBtbMG0KICAgICAgIBtbMzg7Mjs0NTs5MTs2OW3iloQbWzM4OzI7Nzc7MTcxOzE1NTs0ODsyOz
-EwMDsxODI7MTI2beKWhBtbMzg7Mjs2NTsxNTk7MTgwOzQ4OzI7ODQ7MTY5OzE0OG3iloQbWzM4Oz
-I7NjA7MTQ5OzE5OTs0ODsyOzc4OzE1NzsxNjZt4paEG1szODsyOzYzOzE0MTsyMTA7NDg7Mjs4ND
-sxNDQ7MTc3beKWhBtbMzg7Mjs3NTsxMzM7MjEwOzQ4OzI7MTAyOzEzMjsxNzVt4paEG1szODsyOz
-k4OzEyNjsyMDA7NDg7MjsxMzA7MTE5OzE2M23iloQbWzM4OzI7MTI3OzExNjsxODI7NDg7MjsxNj
-I7MTA2OzE0M23iloQbWzM4OzI7MTU3OzEwNzsxNTk7NDg7MjsxOTE7OTQ7MTIxbeKWhBtbMG0gIC
-AgICAgIBtbMG0KICAgICAgIBtbMzg7Mjs1ODsxNTg7MTg0OzQ4OzI7NTc7MTM0OzEyOG3iloQbWz
-M4OzI7NTM7MTUwOzIxMDs0ODsyOzYyOzEwMDsxODRt4paEG1szODsyOzUwOzE0MjsyMjg7NDg7Mj
-s1NDsxNDk7MjA3beKWhBtbMzg7Mjs0OTsxMzc7MjQwOzQ4OzI7NTE7MTQyOzIyNG3iloQbWzM4Oz
-I7NDk7MTM1OzI0Njs0ODsyOzUzOzEzODsyMzNt4paEG1szODsyOzUzOzEzNDsyNDc7NDg7Mjs2MD
-sxMzQ7MjY0beKWhBtbMzg7Mjs2MjsxMzM7MjQ0OzQ4OzI7NzU7MTMwOzIyOG3iloQbWzM4OzI7Nz
-Y7MTMxOzIzNzs0ODsyOzk3OzEyNjsyMTVt4paEG1szODsyOzk3OzEyOTsyMjU7NDg7MjsxMjQ7MT
-IwOzE5N23iloQbWzM4OzI7MTE4OzEyNDsyMDc7NDg7MjsxMTE7ODY7MTM2beKWhBtbMG0gICAgIC
-AgG1swbQogICAgICAbWzM4OzI7Mjk7OTY7MTM5beKWhBtbMzg7Mjs0NzsxNDI7MjI4OzQ4OzI7NT
-E7MTk5OzIwOW3iloQbWzM4OzI7NDg7MTM3OzI0Mjs0ODsyOzUwOzE0MjsyMjlt4paEG1szODsyOz
-M1Ozk3OzE4MDs0ODsyOzQ5OzEzNzsyNDJt4paEG1swbRtbN20bWzM4OzI7NDU7MTI0OzIzMG3ilo
-QbWzM4OzI7MzI7ODk7MTY4beKWhBtbMzg7MjszNDs5MDsxNjlt4paEG1szODsyOzUxOzEyNTsyMz
-Rt4paEG1swbRtbMzg7Mjs0MzsxMDE7MTg4OzQ4OzI7NjQ7MTM1OzI0OW3iloQbWzM4OzI7NjY7MT
-M3OzI1MTs0ODsyOzc4OzEzNTsyNDNt4paEG1szODsyOzc5OzEzODsyNDc7NDg7Mjs5NjsxMzU7Mj
-M0beKWhBtbMG0bWzM4OzI7NTY7ODY7MTUxbeKWhBtbMG0gICAgICAbWzBtCiAgICAgIBtbMzg7Mj
-s0NDsxMzg7MjM3OzQ4OzI7NDA7MTM1OzIxNG3iloQbWzM4OzI7NDY7MTM1OzI0Nzs0ODsyOzQ2Oz
-EzODsyNDBt4paEG1swbRtbN20bWzM4OzI7NDI7MTE4OzIxOG3iloQbWzBtICAgICAgG1s3bRtbMz
-g7Mjs1MzsxMjI7MjI3beKWhBtbMG0bWzM4OzI7NTk7MTM2OzI1Mzs0ODsyOzY3OzEzODsyNTJt4p
-aEG1szODsyOzY2OzEzODsyNTI7NDg7Mjs3MTsxMjk7MjMybeKWhBtbMG0gICAgICAbWzBtCiAgIC
-AgG1szODsyOzQ1OzEzNjsyNDM7NDg7MjszNTsxMTM7MTkybeKWhBtbMzg7Mjs0NDsxMjc7MjM2Oz
-Q4OzI7NDY7MTM2OzI0NG3iloQbMG0bWzdtG1szODsyOzM0Ozk3OzE4MW3iloQbMG0gICAgICAgIB
-tbN20bWzM4OzI7NDE7MTAyOzE5Mm3iloQbMG0bWzM4OzI7NTE7MTI5OzI0Mzs0ODsyOzU5OzEzNj
-syNTNt4paEG1szODsyOzU3OzEzNTsyNTM7NDg7Mjs0OTsxMDc7MTk4beKWhBtbMG0gICAgIBtbMG
-0KICAgG1szODsyOzQ1OzEyMDsyMTht4paEG1szODsyOzQ0OzEyNTsyMzE7NDg7Mjs0MzsxMzA7Mj
-MybeKWhBtbMG0bWzdtG1szODsyOzQ2OzEzMjsyNDRt4paEG1swbSAgICAgICAgICAgIBtbN20bWz
-M4OzI7NTE7MTMyOzI1MW3iloQbMG0bWzM4OzI7NDY7MTI1OzIzODs0ODsyOzUxOzEyNjsyMzht4p
-aEG1szODsyOzQxOzEwOTsyMDdt4paEG1swbSAgICAbWzBtCiAgICAgICAgICAgICAgICAgICAgIC
-AgIBtbMG0KICAgICAgICAgICAgICAgICAgICAgICAgG1swbQobWz8yNWg=
+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
 EOF
 
 COLS=$(tput cols </dev/tty 2>/dev/null || echo 60)
@@ -235,23 +224,6 @@ detect_compiler() {
   return 1
 }
 
-# ── Package Manager Detection (PRoot) ─────────────────────────────────────────
-detect_proot_pm() {
-  if command -v apt-get &>/dev/null; then
-    echo "apt"
-  elif command -v apk &>/dev/null; then
-    echo "apk"
-  elif command -v pacman &>/dev/null; then
-    echo "pacman"
-  elif command -v dnf &>/dev/null; then
-    echo "dnf"
-  elif command -v yum &>/dev/null; then
-    echo "yum"
-  else
-    echo "unknown"
-  fi
-}
-
 # ── Prerequisite Setup ────────────────────────────────────────────────────────
 check_glibc() {
   if [[ "$ENV_TYPE" == "termux" ]]; then
@@ -261,185 +233,82 @@ check_glibc() {
   fi
 }
 
-# Unified check that returns 0 if all conditions are satisfied, 1 otherwise
-check_all_dependencies() {
-  MISSING_TOOLS=()
-  MISSING_COMPILER=0
-  MISSING_GLIBC=0
-
+check_and_install_prereqs() {
+  local missing=()
   local tools=(python3)
+
+  # If we need to download, add curl, jq, tar to checking list
   if [[ -z "${UPSTREAM_BIN:-}" ]]; then
     tools+=(curl jq tar)
   fi
 
-  for cmd in "${tools[@]:-}"; do
+  for cmd in "${tools[@]}"; do
     if ! command -v "$cmd" &>/dev/null; then
-      MISSING_TOOLS+=("$cmd")
+      missing+=("$cmd")
     fi
   done
 
-  if ! detect_compiler &>/dev/null; then
-    MISSING_COMPILER=1
+  local compiler_found=0
+  if detect_compiler &>/dev/null; then
+    compiler_found=1
   fi
 
-  if ! check_glibc; then
-    MISSING_GLIBC=1
-  fi
-
-  if [[ ${#MISSING_TOOLS[@]} -eq 0 && $MISSING_COMPILER -eq 0 && $MISSING_GLIBC -eq 0 ]]; then
-    return 0
-  else
-    return 1
-  fi
-}
-
-resolve_dependencies() {
-  while true; do
-    # Run the validation check
-    if check_all_dependencies; then
-      ok "All prerequisites are satisfied."
-      return 0
-    fi
-
-    # Display what needs resolving
-    printf "\n  %b[!]%b Missing required prerequisites:\n" "$RED" "$RESET"
-    if [[ ${#MISSING_TOOLS[@]} -gt 0 ]]; then
-      printf "    - Missing command(s): %b%s%b\n" "$BOLD" "${MISSING_TOOLS[*]:-}" "$RESET"
-    fi
-    if [[ $MISSING_COMPILER -eq 1 ]]; then
-      printf "    - Missing compiler: %bclang%b or %bgcc%b\n" "$BOLD" "$RESET" "$BOLD" "$RESET"
-    fi
-    if [[ $MISSING_GLIBC -eq 1 ]]; then
-      printf "    - Missing C Library: %bglibc%b\n" "$BOLD" "$RESET"
-    fi
-    divider
-
-    # ── Termux Core Installation Path ──
+  if [[ ${#missing[@]} -gt 0 || $compiler_found -eq 0 ]]; then
     if [[ "$ENV_TYPE" == "termux" ]]; then
       command -v pkg >/dev/null 2>&1 || die "pkg is required but not found to install missing build tools"
-      
+      printf "\n  %b[!]%b Missing required build tools.\n" "$RED" "$RESET"
       local to_install=()
-      for tool in "${MISSING_TOOLS[@]:-}"; do
+      for tool in "${missing[@]}"; do
         if [[ "$tool" == "python3" ]]; then
           to_install+=("python")
         else
           to_install+=("$tool")
         fi
       done
-      if [[ $MISSING_COMPILER -eq 1 ]]; then
+      if [[ $compiler_found -eq 0 ]]; then
         to_install+=("clang")
       fi
-      
-      local glibc_repo_needed=0
-      if [[ $MISSING_GLIBC -eq 1 ]]; then
-        glibc_repo_needed=1
-        to_install+=("glibc")
-      fi
-
-      printf "  Would you like to install the missing prerequisites (%s) now via pkg? [Y/n]: " "${to_install[*]:-}"
-      read -r ans < /dev/tty || ans="y"
-      ans=$(echo "$ans" | tr '[:upper:]' '[:lower:]')
-      
-      if [[ "$ans" =~ ^[Yy]$ || -z "$ans" ]]; then
-        if [[ $glibc_repo_needed -eq 1 ]]; then
-          info "Setting up glibc-repo..."
-          pkg install -y glibc-repo || true
-        fi
-        info "Installing packages: ${to_install[*]:-}..."
-        if pkg install -y "${to_install[@]:-}"; then
-          ok "Termux package installer run completed. Verifying dependencies..."
-        else
-          info "Warning: Package installer reported errors. Re-running checklist..."
-        fi
+      printf "  Would you like to install %s now via pkg? [Y/n]: " "${to_install[*]}"
+      read -r -n 1 ans < /dev/tty || ans="y"
+      printf "\n"
+      if [[ "$ans" =~ ^[Yy]$ ]] || [[ -z "$ans" ]]; then
+        pkg install -y "${to_install[@]}" || die "Failed to install required tools: ${to_install[*]}"
       else
-        die "Cannot continue. Required prerequisites are missing: ${to_install[*]:-}."
+        die "Required tools: ${to_install[*]} are missing."
       fi
-
-    # ── PRoot Core Installation Path ──
     else
-      local pm
-      pm=$(detect_proot_pm)
-      
-      local pm_install_cmd=""
-      local install_list=()
-      
-      # Build precise target install syntax based on localized distribution package manager
-      if [[ "$pm" == "apt" ]]; then
-        for tool in "${MISSING_TOOLS[@]:-}"; do
-          install_list+=("$tool")
-        done
-        [[ $MISSING_COMPILER -eq 1 ]] && install_list+=("build-essential")
-        [[ $MISSING_GLIBC -eq 1 ]] && install_list+=("libc6")
-        pm_install_cmd="apt-get update && apt-get install -y ${install_list[*]:-}"
-      elif [[ "$pm" == "apk" ]]; then
-        for tool in "${MISSING_TOOLS[@]:-}"; do
-          if [[ "$tool" == "python3" ]]; then
-            install_list+=("python3")
-          else
-            install_list+=("$tool")
-          fi
-        done
-        [[ $MISSING_COMPILER -eq 1 ]] && install_list+=("build-base")
-        [[ $MISSING_GLIBC -eq 1 ]] && install_list+=("gcompat")
-        pm_install_cmd="apk update && apk add ${install_list[*]:-}"
-      elif [[ "$pm" == "pacman" ]]; then
-        for tool in "${MISSING_TOOLS[@]:-}"; do
-          install_list+=("$tool")
-        done
-        [[ $MISSING_COMPILER -eq 1 ]] && install_list+=("base-devel")
-        pm_install_cmd="pacman -Sy --noconfirm ${install_list[*]:-}"
-      elif [[ "$pm" == "dnf" || "$pm" == "yum" ]]; then
-        for tool in "${MISSING_TOOLS[@]:-}"; do
-          install_list+=("$tool")
-        done
-        [[ $MISSING_COMPILER -eq 1 ]] && install_list+=("gcc" "gcc-c++" "make")
-        pm_install_cmd="$pm install -y ${install_list[*]:-}"
-      fi
-
-      printf "  We detected a PRoot distro using package manager: %b%s%b\n" "$BOLD" "$pm" "$RESET"
-      printf "  How would you like to handle the missing dependencies?\n"
-      printf "    [1] Enter sudo password to execute automatic installation\n"
-      printf "    [2] Install them manually and then confirm\n"
-      printf "  Select an option [1-2] (default 1): "
-      read -r choice < /dev/tty || choice="1"
-      [[ -z "$choice" ]] && choice="1"
-
-      if [[ "$choice" == "1" ]]; then
-        if [[ -n "$pm_install_cmd" ]]; then
-          info "Invoking sudo to run: ${pm_install_cmd}"
-          if sudo bash -c "$pm_install_cmd"; then
-            ok "Automatic installation finished. Checking verification..."
-          else
-            info "Sudo helper run returned an error code or was cancelled."
-          fi
-        else
-          printf "  %b[!]%b No automatic installer package config is available for: %s\n" "$RED" "$RESET" "$pm"
-          printf "  Proceeding to manual confirmation path...\n"
-          choice="2"
-        fi
-      fi
-
-      if [[ "$choice" == "2" ]]; then
-        printf "\n  Please run your distribution's installer manually to install these prerequisites:\n"
-        printf "  - Core utilities: %s\n" "${MISSING_TOOLS[*]:-}"
-        [[ $MISSING_COMPILER -eq 1 ]] && printf "  - C Compiler: clang, gcc, or equivalent development toolkit\n"
-        [[ $MISSING_GLIBC -eq 1 ]] && printf "  - Library: GNU glibc framework (or gcompat on Alpine)\n"
-        
-        printf "\n  Type %by%b in the prompt and hit enter once done to re-verify: " "$BOLD" "$RESET"
-        read -r confirm_ans < /dev/tty || confirm_ans=""
-        confirm_ans=$(echo "$confirm_ans" | tr '[:upper:]' '[:lower:]')
-        if [[ "$confirm_ans" != "y" ]]; then
-          die "Installation aborted by the user."
-        fi
-      fi
+      local reqs=""
+      for tool in "${missing[@]}"; do
+        reqs+="$tool "
+      done
+      [[ $compiler_found -eq 0 ]] && reqs+="clang/gcc"
+      die "Required build tools are missing: $reqs. Please install them using your package manager."
     fi
-  done
+  fi
 }
 
-# Resolve all structural dependencies first
-resolve_dependencies
+check_and_install_prereqs
 
-ok "Environment check passed: ${ENV_TYPE} (aarch64)"
+if ! check_glibc; then
+  if [[ "$ENV_TYPE" == "termux" ]]; then
+    command -v pkg >/dev/null 2>&1 || die "pkg is required to install glibc"
+    printf "\n  %b[!]%b The glibc package is required but not installed.\n" "$RED" "$RESET"
+    printf "  Would you like to install it now via pkg? [Y/n]: "
+    read -r -n 1 ans < /dev/tty || ans="y"
+    printf "\n"
+
+    if [[ "$ans" =~ ^[Yy]$ ]] || [[ -z "$ans" ]]; then
+      pkg install -y glibc-repo || true
+      pkg install -y glibc || die "Failed to install Termux glibc."
+    else
+      die "glibc is required to proceed."
+    fi
+  else
+    die "glibc is required but not found. Please install glibc using your distribution's package manager."
+  fi
+fi
+
+ok "Environment: ${ENV_TYPE} (aarch64)"
 
 # ── Resolve or Download Google Binary ─────────────────────────────────────────
 if [[ -n "$UPSTREAM_BIN" ]]; then
