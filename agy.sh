@@ -309,83 +309,88 @@ check_and_install_dependencies() {
         die "glibc is required but not found. Please install glibc using your distribution's package manager."
       fi
 
+      # Map tools to packages
+      local apt_packages=()
+      local apk_packages=()
+      local pacman_packages=()
+      local dnf_packages=()
+      
+      for tool in "${missing[@]}"; do
+        if [[ "$tool" == "python3" ]]; then
+          apt_packages+=("python3")
+          apk_packages+=("python3")
+          pacman_packages+=("python")
+          dnf_packages+=("python3")
+        elif [[ "$tool" == "jq" ]]; then
+          apt_packages+=("jq")
+          apk_packages+=("jq")
+          pacman_packages+=("jq")
+          dnf_packages+=("jq")
+        elif [[ "$tool" == "curl" ]]; then
+          apt_packages+=("curl")
+          apk_packages+=("curl")
+          pacman_packages+=("curl")
+          dnf_packages+=("curl")
+        elif [[ "$tool" == "tar" ]]; then
+          apt_packages+=("tar")
+          apk_packages+=("tar")
+          pacman_packages+=("tar")
+          dnf_packages+=("tar")
+        fi
+      done
+      if [[ $compiler_found -eq 0 ]]; then
+        apt_packages+=("build-essential")
+        apk_packages+=("build-base")
+        pacman_packages+=("base-devel")
+        dnf_packages+=("gcc" "gcc-c++" "make")
+      fi
+
+      # Check privilege helper (use sudo if available and we're not root)
+      local helper=""
+      if [[ "$EUID" -ne 0 ]] && command -v sudo &>/dev/null; then
+        helper="sudo "
+      fi
+
+      local show_cmd=""
+      local run_cmd=""
+      if command -v apt-get &>/dev/null; then
+        show_cmd="${helper}apt-get update && ${helper}apt-get install -y ${apt_packages[*]}"
+        run_cmd="${helper}apt-get update >/dev/null && ${helper}apt-get install -y ${apt_packages[*]} >/dev/null"
+      elif command -v apk &>/dev/null; then
+        show_cmd="${helper}apk add ${apk_packages[*]}"
+        run_cmd="${helper}apk add ${apk_packages[*]} >/dev/null"
+      elif command -v pacman &>/dev/null; then
+        show_cmd="${helper}pacman -Sy --noconfirm ${pacman_packages[*]}"
+        run_cmd="${helper}pacman -Sy --noconfirm ${pacman_packages[*]} >/dev/null"
+      elif command -v dnf &>/dev/null; then
+        show_cmd="${helper}dnf install -y ${dnf_packages[*]}"
+        run_cmd="${helper}dnf install -y ${dnf_packages[*]} >/dev/null"
+      fi
+
+      if [[ -z "$show_cmd" ]]; then
+        die "No supported package manager found (apt-get, apk, pacman, dnf). Please install the missing tools manually: ${missing[*]}"
+      fi
+
       printf "\n  %b[!]%b Missing required build tools: %s %s\n" "$RED" "$RESET" "${missing[*]}" "$([[ $compiler_found -eq 0 ]] && echo 'clang/gcc' || echo '')"
-      printf "  Select an option:\n"
-      printf "    1) Attempt automatic installation via package manager (may ask for sudo password)\n"
-      printf "    2) Install manually in another terminal, then verify\n"
-      printf "    3) Cancel installation\n"
-      printf "  Choice [1-3]: "
-      read -r opt < /dev/tty || opt="3"
+      printf "  The following installation command will be executed:\n"
+      printf "    %b%s%b\n\n" "$BOLD" "$show_cmd" "$RESET"
+      printf "  Press Enter to run it (may ask for password), or type 'c' to cancel: "
+      
+      local ans=""
+      read -r ans < /dev/tty || ans="c"
 
-      if [[ "$opt" == "1" ]]; then
-        # Map tools to packages
-        local apt_packages=()
-        local apk_packages=()
-        local pacman_packages=()
-        local dnf_packages=()
-        
-        for tool in "${missing[@]}"; do
-          if [[ "$tool" == "python3" ]]; then
-            apt_packages+=("python3")
-            apk_packages+=("python3")
-            pacman_packages+=("python")
-            dnf_packages+=("python3")
-          elif [[ "$tool" == "jq" ]]; then
-            apt_packages+=("jq")
-            apk_packages+=("jq")
-            pacman_packages+=("jq")
-            dnf_packages+=("jq")
-          elif [[ "$tool" == "curl" ]]; then
-            apt_packages+=("curl")
-            apk_packages+=("curl")
-            pacman_packages+=("curl")
-            dnf_packages+=("curl")
-          elif [[ "$tool" == "tar" ]]; then
-            apt_packages+=("tar")
-            apk_packages+=("tar")
-            pacman_packages+=("tar")
-            dnf_packages+=("tar")
-          fi
-        done
-        if [[ $compiler_found -eq 0 ]]; then
-          apt_packages+=("build-essential")
-          apk_packages+=("build-base")
-          pacman_packages+=("base-devel")
-          dnf_packages+=("gcc" "gcc-c++" "make")
-        fi
-
-        # Check privilege helper (use sudo if available and we're not root)
-        local helper=""
-        if [[ "$EUID" -ne 0 ]] && command -v sudo &>/dev/null; then
-          helper="sudo"
-        fi
-
-        local installed=0
-        if command -v apt-get &>/dev/null; then
-          info "Installing requirements: ${apt_packages[*]}..."
-          $helper apt-get update &>/dev/null && $helper apt-get install -y "${apt_packages[@]}" &>/dev/null && installed=1
-        elif command -v apk &>/dev/null; then
-          info "Installing requirements: ${apk_packages[*]}..."
-          $helper apk add "${apk_packages[@]}" &>/dev/null && installed=1
-        elif command -v pacman &>/dev/null; then
-          info "Installing requirements: ${pacman_packages[*]}..."
-          $helper pacman -Sy --noconfirm "${pacman_packages[@]}" &>/dev/null && installed=1
-        elif command -v dnf &>/dev/null; then
-          info "Installing requirements: ${dnf_packages[*]}..."
-          $helper dnf install -y "${dnf_packages[@]}" &>/dev/null && installed=1
-        fi
-
-        if [[ $installed -eq 0 ]]; then
-          die "Automatic installation failed or package manager not supported. Please install them manually."
-        fi
-      elif [[ "$opt" == "2" ]]; then
-        printf "  Please install the missing tools in another terminal.\n"
-        printf "  Press 'y' and Enter once they are installed to check again: "
-        local confirm=""
-        read -r confirm < /dev/tty || confirm="n"
-        # We continue the loop to re-check
-      else
+      if [[ "$ans" =~ ^[Cc]$ ]]; then
         die "Installation cancelled by user."
+      fi
+
+      info "Installing requirements..."
+      local installed=0
+      if eval "$run_cmd"; then
+        installed=1
+      fi
+
+      if [[ $installed -eq 0 ]]; then
+        die "Automatic installation failed or package manager not supported. Please install them manually."
       fi
     fi
   done
