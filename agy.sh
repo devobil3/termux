@@ -355,16 +355,16 @@ check_and_install_dependencies() {
       local run_cmd=""
       if command -v apt-get &>/dev/null; then
         show_cmd="${helper}apt-get update && ${helper}apt-get install -y ${apt_packages[*]}"
-        run_cmd="${helper}apt-get update >/dev/null && ${helper}apt-get install -y ${apt_packages[*]} >/dev/null"
+        run_cmd="${helper}DEBIAN_FRONTEND=noninteractive apt-get update &>/dev/null && ${helper}DEBIAN_FRONTEND=noninteractive apt-get install -y ${apt_packages[*]} &>/dev/null"
       elif command -v apk &>/dev/null; then
         show_cmd="${helper}apk add ${apk_packages[*]}"
-        run_cmd="${helper}apk add ${apk_packages[*]} >/dev/null"
+        run_cmd="${helper}apk add ${apk_packages[*]} &>/dev/null"
       elif command -v pacman &>/dev/null; then
         show_cmd="${helper}pacman -Sy --noconfirm ${pacman_packages[*]}"
-        run_cmd="${helper}pacman -Sy --noconfirm ${pacman_packages[*]} >/dev/null"
+        run_cmd="${helper}pacman -Sy --noconfirm ${pacman_packages[*]} &>/dev/null"
       elif command -v dnf &>/dev/null; then
         show_cmd="${helper}dnf install -y ${dnf_packages[*]}"
-        run_cmd="${helper}dnf install -y ${dnf_packages[*]} >/dev/null"
+        run_cmd="${helper}dnf install -y ${dnf_packages[*]} &>/dev/null"
       fi
 
       if [[ -z "$show_cmd" ]]; then
@@ -381,6 +381,12 @@ check_and_install_dependencies() {
 
       if [[ "$ans" =~ ^[Cc]$ ]]; then
         die "Installation cancelled by user."
+      fi
+
+      if [[ -n "$helper" ]]; then
+        if ! sudo -v; then
+          die "Authentication failed."
+        fi
       fi
 
       info "Installing requirements..."
