@@ -241,7 +241,7 @@ check_glibc() {
   fi
 }
 
-check_and_install_prereqs() {
+check_and_install_dependencies() {
   while true; do
     local missing=()
     local tools=(python3)
@@ -262,14 +262,19 @@ check_and_install_prereqs() {
       compiler_found=1
     fi
 
-    # If all tools are found and compiler is found, we are done
-    if [[ ${#missing[@]} -eq 0 && $compiler_found -eq 1 ]]; then
+    local glibc_missing=0
+    if ! check_glibc; then
+      glibc_missing=1
+    fi
+
+    # If all tools are found, compiler is found, and glibc is present, we are done
+    if [[ ${#missing[@]} -eq 0 && $compiler_found -eq 1 && $glibc_missing -eq 0 ]]; then
       break
     fi
 
     if [[ "$ENV_TYPE" == "termux" ]]; then
-      command -v pkg >/dev/null 2>&1 || die "pkg is required but not found to install missing build tools"
-      printf "\n  %b[!]%b Missing required build tools.\n" "$RED" "$RESET"
+      command -v pkg >/dev/null 2>&1 || die "pkg is required but not found to install missing dependencies"
+      
       local to_install=()
       for tool in "${missing[@]}"; do
         if [[ "$tool" == "python3" ]]; then
@@ -281,17 +286,29 @@ check_and_install_prereqs() {
       if [[ $compiler_found -eq 0 ]]; then
         to_install+=("clang")
       fi
+      if [[ $glibc_missing -eq 1 ]]; then
+        to_install+=("glibc-repo" "glibc")
+      fi
+
+      printf "\n  %b[!]%b Missing required build tools/dependencies.\n" "$RED" "$RESET"
       printf "  Would you like to install %s now via pkg? [Y/n]: " "${to_install[*]}"
       read -r -n 1 ans < /dev/tty || ans="y"
       printf "\n"
       if [[ "$ans" =~ ^[Yy]$ ]] || [[ -z "$ans" ]]; then
         info "Installing requirements: ${to_install[*]}..."
+        if [[ " ${to_install[*]} " =~ " glibc-repo " ]]; then
+          pkg install -y glibc-repo &>/dev/null || true
+        fi
         pkg install -y "${to_install[@]}" &>/dev/null || die "Failed to install required tools: ${to_install[*]}"
       else
-        die "Required tools: ${to_install[*]} are missing."
+        die "Required tools/dependencies: ${to_install[*]} are missing."
       fi
     else
       # We are in PRoot or other Linux environment
+      if [[ $glibc_missing -eq 1 ]]; then
+        die "glibc is required but not found. Please install glibc using your distribution's package manager."
+      fi
+
       printf "\n  %b[!]%b Missing required build tools: %s %s\n" "$RED" "$RESET" "${missing[*]}" "$([[ $compiler_found -eq 0 ]] && echo 'clang/gcc' || echo '')"
       printf "  Select an option:\n"
       printf "    1) Attempt automatic installation via package manager (may ask for sudo password)\n"
@@ -359,7 +376,7 @@ check_and_install_prereqs() {
         fi
 
         if [[ $installed -eq 0 ]]; then
-          error "Automatic installation failed or package manager not supported. Please install them manually."
+          die "Automatic installation failed or package manager not supported. Please install them manually."
         fi
       elif [[ "$opt" == "2" ]]; then
         printf "  Please install the missing tools in another terminal.\n"
@@ -374,28 +391,7 @@ check_and_install_prereqs() {
   done
 }
 
-check_and_install_prereqs
-
-if ! check_glibc; then
-  if [[ "$ENV_TYPE" == "termux" ]]; then
-    command -v pkg >/dev/null 2>&1 || die "pkg is required to install glibc"
-    printf "\n  %b[!]%b The glibc package is required but not installed.\n" "$RED" "$RESET"
-    printf "  Would you like to install it now via pkg? [Y/n]: "
-    read -r -n 1 ans < /dev/tty || ans="y"
-    printf "\n"
-
-    if [[ "$ans" =~ ^[Yy]$ ]] || [[ -z "$ans" ]]; then
-      info "Installing glibc-repo..."
-      pkg install -y glibc-repo &>/dev/null || true
-      info "Installing glibc..."
-      pkg install -y glibc &>/dev/null || die "Failed to install Termux glibc."
-    else
-      die "glibc is required to proceed."
-    fi
-  else
-    die "glibc is required but not found. Please install glibc using your distribution's package manager."
-  fi
-fi
+check_and_install_dependencies
 
 ok "Environment: ${ENV_TYPE} (aarch64)"
 
