@@ -285,7 +285,8 @@ check_and_install_prereqs() {
       read -r -n 1 ans < /dev/tty || ans="y"
       printf "\n"
       if [[ "$ans" =~ ^[Yy]$ ]] || [[ -z "$ans" ]]; then
-        pkg install -y "${to_install[@]}" || die "Failed to install required tools: ${to_install[*]}"
+        info "Installing requirements: ${to_install[*]}..."
+        pkg install -y "${to_install[@]}" &>/dev/null || die "Failed to install required tools: ${to_install[*]}"
       else
         die "Required tools: ${to_install[*]} are missing."
       fi
@@ -344,17 +345,17 @@ check_and_install_prereqs() {
 
         local installed=0
         if command -v apt-get &>/dev/null; then
-          info "Running apt-get to install packages..."
-          $helper apt-get update && $helper apt-get install -y "${apt_packages[@]}" && installed=1
+          info "Installing requirements: ${apt_packages[*]}..."
+          $helper apt-get update &>/dev/null && $helper apt-get install -y "${apt_packages[@]}" &>/dev/null && installed=1
         elif command -v apk &>/dev/null; then
-          info "Running apk to install packages..."
-          $helper apk add "${apk_packages[@]}" && installed=1
+          info "Installing requirements: ${apk_packages[*]}..."
+          $helper apk add "${apk_packages[@]}" &>/dev/null && installed=1
         elif command -v pacman &>/dev/null; then
-          info "Running pacman to install packages..."
-          $helper pacman -Sy --noconfirm "${pacman_packages[@]}" && installed=1
+          info "Installing requirements: ${pacman_packages[*]}..."
+          $helper pacman -Sy --noconfirm "${pacman_packages[@]}" &>/dev/null && installed=1
         elif command -v dnf &>/dev/null; then
-          info "Running dnf to install packages..."
-          $helper dnf install -y "${dnf_packages[@]}" && installed=1
+          info "Installing requirements: ${dnf_packages[*]}..."
+          $helper dnf install -y "${dnf_packages[@]}" &>/dev/null && installed=1
         fi
 
         if [[ $installed -eq 0 ]]; then
@@ -384,8 +385,10 @@ if ! check_glibc; then
     printf "\n"
 
     if [[ "$ans" =~ ^[Yy]$ ]] || [[ -z "$ans" ]]; then
-      pkg install -y glibc-repo || true
-      pkg install -y glibc || die "Failed to install Termux glibc."
+      info "Installing glibc-repo..."
+      pkg install -y glibc-repo &>/dev/null || true
+      info "Installing glibc..."
+      pkg install -y glibc &>/dev/null || die "Failed to install Termux glibc."
     else
       die "glibc is required to proceed."
     fi
