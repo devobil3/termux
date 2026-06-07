@@ -37,8 +37,16 @@ cleanup() {
   printf "\033[?25h" # Restore cursor if cancelled
   [[ -n "${BUILD_DIR:-}" && -d "$BUILD_DIR" ]] && rm -rf "$BUILD_DIR"
   if [[ "${INSTALL_SUCCESS:-0}" -ne 1 ]]; then
-    [[ -n "${AGY_BAK:-}" && -f "$AGY_BAK" ]] && mv -f "$AGY_BAK" "$INSTALL_BIN_DIR/agy" || true
-    [[ -n "${AGY_VA39_BAK:-}" && -f "$AGY_VA39_BAK" ]] && mv -f "$AGY_VA39_BAK" "$INSTALL_BIN_DIR/agy.va39" || true
+    if [[ -n "${AGY_BAK:-}" && -f "$AGY_BAK" ]]; then
+      mv -f "$AGY_BAK" "$INSTALL_BIN_DIR/agy" || true
+    else
+      rm -f "$INSTALL_BIN_DIR/agy" || true
+    fi
+    if [[ -n "${AGY_VA39_BAK:-}" && -f "$AGY_VA39_BAK" ]]; then
+      mv -f "$AGY_VA39_BAK" "$INSTALL_BIN_DIR/agy.va39" || true
+    else
+      rm -f "$INSTALL_BIN_DIR/agy.va39" || true
+    fi
   else
     [[ -n "${AGY_BAK:-}" && -f "$AGY_BAK" ]] && rm -f "$AGY_BAK" || true
     [[ -n "${AGY_VA39_BAK:-}" && -f "$AGY_VA39_BAK" ]] && rm -f "$AGY_VA39_BAK" || true
@@ -234,26 +242,31 @@ check_glibc() {
 }
 
 check_and_install_prereqs() {
-  local missing=()
-  local tools=(python3)
+  while true; do
+    local missing=()
+    local tools=(python3)
 
-  # If we need to download, add curl, jq, tar to checking list
-  if [[ -z "${UPSTREAM_BIN:-}" ]]; then
-    tools+=(curl jq tar)
-  fi
-
-  for cmd in "${tools[@]}"; do
-    if ! command -v "$cmd" &>/dev/null; then
-      missing+=("$cmd")
+    # If we need to download, add curl, jq, tar to checking list
+    if [[ -z "${UPSTREAM_BIN:-}" ]]; then
+      tools+=(curl jq tar)
     fi
-  done
 
-  local compiler_found=0
-  if detect_compiler &>/dev/null; then
-    compiler_found=1
-  fi
+    for cmd in "${tools[@]}"; do
+      if ! command -v "$cmd" &>/dev/null; then
+        missing+=("$cmd")
+      fi
+    done
 
-  if [[ ${#missing[@]} -gt 0 || $compiler_found -eq 0 ]]; then
+    local compiler_found=0
+    if detect_compiler &>/dev/null; then
+      compiler_found=1
+    fi
+
+    # If all tools are found and compiler is found, we are done
+    if [[ ${#missing[@]} -eq 0 && $compiler_found -eq 1 ]]; then
+      break
+    fi
+
     if [[ "$ENV_TYPE" == "termux" ]]; then
       command -v pkg >/dev/null 2>&1 || die "pkg is required but not found to install missing build tools"
       printf "\n  %b[!]%b Missing required build tools.\n" "$RED" "$RESET"
@@ -277,14 +290,87 @@ check_and_install_prereqs() {
         die "Required tools: ${to_install[*]} are missing."
       fi
     else
-      local reqs=""
-      for tool in "${missing[@]}"; do
-        reqs+="$tool "
-      done
-      [[ $compiler_found -eq 0 ]] && reqs+="clang/gcc"
-      die "Required build tools are missing: $reqs. Please install them using your package manager."
+      # We are in PRoot or other Linux environment
+      printf "\n  %b[!]%b Missing required build tools: %s %s\n" "$RED" "$RESET" "${missing[*]}" "$([[ $compiler_found -eq 0 ]] && echo 'clang/gcc' || echo '')"
+      printf "  Select an option:\n"
+      printf "    1) Attempt automatic installation via package manager (may ask for sudo password)\n"
+      printf "    2) Install manually in another terminal, then verify\n"
+      printf "    3) Cancel installation\n"
+      printf "  Choice [1-3]: "
+      read -r opt < /dev/tty || opt="3"
+
+      if [[ "$opt" == "1" ]]; then
+        # Map tools to packages
+        local apt_packages=()
+        local apk_packages=()
+        local pacman_packages=()
+        local dnf_packages=()
+        
+        for tool in "${missing[@]}"; do
+          if [[ "$tool" == "python3" ]]; then
+            apt_packages+=("python3")
+            apk_packages+=("python3")
+            pacman_packages+=("python")
+            dnf_packages+=("python3")
+          elif [[ "$tool" == "jq" ]]; then
+            apt_packages+=("jq")
+            apk_packages+=("jq")
+            pacman_packages+=("jq")
+            dnf_packages+=("jq")
+          elif [[ "$tool" == "curl" ]]; then
+            apt_packages+=("curl")
+            apk_packages+=("curl")
+            pacman_packages+=("curl")
+            dnf_packages+=("curl")
+          elif [[ "$tool" == "tar" ]]; then
+            apt_packages+=("tar")
+            apk_packages+=("tar")
+            pacman_packages+=("tar")
+            dnf_packages+=("tar")
+          fi
+        done
+        if [[ $compiler_found -eq 0 ]]; then
+          apt_packages+=("build-essential")
+          apk_packages+=("build-base")
+          pacman_packages+=("base-devel")
+          dnf_packages+=("gcc" "gcc-c++" "make")
+        fi
+
+        # Check privilege helper (use sudo if available and we're not root)
+        local helper=""
+        if [[ "$EUID" -ne 0 ]] && command -v sudo &>/dev/null; then
+          helper="sudo"
+        fi
+
+        local installed=0
+        if command -v apt-get &>/dev/null; then
+          info "Running apt-get to install packages..."
+          $helper apt-get update && $helper apt-get install -y "${apt_packages[@]}" && installed=1
+        elif command -v apk &>/dev/null; then
+          info "Running apk to install packages..."
+          $helper apk add "${apk_packages[@]}" && installed=1
+        elif command -v pacman &>/dev/null; then
+          info "Running pacman to install packages..."
+          $helper pacman -Sy --noconfirm "${pacman_packages[@]}" && installed=1
+        elif command -v dnf &>/dev/null; then
+          info "Running dnf to install packages..."
+          $helper dnf install -y "${dnf_packages[@]}" && installed=1
+        fi
+
+        if [[ $installed -eq 0 ]]; then
+          error "Automatic installation failed or package manager not supported. Please install them manually."
+        fi
+      elif [[ "$opt" == "2" ]]; then
+        printf "  Please install the missing tools in another terminal.\n"
+        printf "  Press 'y' and Enter once they are installed to check again: "
+        local confirm=""
+        read -r confirm < /dev/tty || confirm="n"
+        # We continue the loop to re-check
+      else
+        die "Installation cancelled by user."
+      fi
     fi
-  fi
+  done
 }
 
 check_and_install_prereqs
