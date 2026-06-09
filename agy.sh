@@ -20,7 +20,7 @@ case "$tn" in
 esac
 
 if [[ "$ENV_TYPE" == "unknown" ]]; then
-  printf "\033[31m[ERR]\033[0m This install script is exclusively designed for native Termux or Termux PRoot distro environments.\n" >&2
+  printf "  \033[31m✗\033[0m This script requires native Termux or Termux PRoot.\n" >&2
   exit 1
 fi
 
@@ -60,33 +60,32 @@ handle_cancel() {
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
-  BOLD=$'\e[1m'
-  DIM=$'\e[2m'
-  GREEN=$'\e[32m'
-  RED=$'\e[31m'
-  CYAN=$'\e[36m'
-  RESET=$'\e[0m'
+  B=$'\e[1m'  D=$'\e[2m'  G=$'\e[32m'  R=$'\e[31m'  C=$'\e[36m'  W=$'\e[37m'  N=$'\e[0m'
 else
-  BOLD="" DIM="" GREEN="" RED="" CYAN="" RESET=""
+  B=""  D=""  G=""  R=""  C=""  W=""  N=""
 fi
 
+# Legacy aliases used throughout the script
+BOLD="$B"  DIM="$D"  GREEN="$G"  RED="$R"  CYAN="$C"  RESET="$N"
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
-info()    { printf '%b\n' " ${CYAN}[..]${RESET} ${DIM}$*${RESET}"; }
-ok()      { printf '%b\n' " ${GREEN}[OK]${RESET} $*"; }
+info()  { printf '  %b\n' "${D}⠶${N} ${D}$*${N}"; }
+ok()    { printf '  %b\n' "${G}✓${N} $*"; }
 die() {
   {
-    printf "\033[?25h" # Restore cursor
+    printf "\033[?25h"
+    printf '\n'
     if [[ $# -gt 0 ]]; then
-      printf '\n%b\n' " ${RED}[ERR]${RESET} $*"
+      printf '  %b\n' "${R}✗${N} $*"
     else
-      printf '\n%b\n' " ${RED}[ERR]${RESET} Installation failed or was cancelled."
+      printf '  %b\n' "${R}✗${N} Installation failed or was cancelled."
     fi
-    printf "For manual patching and installation:\n"
-    printf "%bhttps://gist.github.com/Brajesh2022/e42160d29b55417db6c18c52dd1d6d37%b\n\n" "$CYAN" "$RESET"
+    printf '\n  %b\n\n' "${D}Manual install → ${C}https://gist.github.com/Brajesh2022/e42160d29b55417db6c18c52dd1d6d37${N}"
   } >&2
   exit 1
 }
-divider() { printf '%b\n' "${DIM}────────────────────────────────────────${RESET}"; }
+sep() { printf '  %b\n' "${D}─────────────────────────────────${N}"; }
+divider() { sep; }
 
 show_help() {
   cat <<EOF
@@ -167,7 +166,7 @@ ICAgICAgICAgICAgICAbWzBtCiAgICAgICAgICAgICAgICAgICAgICAgIBtbMG0KG1s/MjVo
 EOF
 
 COLS=$(tput cols </dev/tty 2>/dev/null || echo 60)
-awk -v cols="$COLS" -v arch="$(uname -m)" -v bold="${BOLD}${CYAN}" -v dim="${DIM}" -v grn="${GREEN}" -v rst="${RESET}" '
+awk -v cols="$COLS" -v env="${ENV_TYPE}" -v bold="${B}${C}" -v dim="${D}" -v rst="${N}" '
 {
   sub(/\r$/, "");
   if (cols >= 48) {
@@ -175,9 +174,7 @@ awk -v cols="$COLS" -v arch="$(uname -m)" -v bold="${BOLD}${CYAN}" -v dim="${DIM
     if (NR == 3)      printf "\033[28G %sAntigravity Termux%s", bold, rst;
     else if (NR == 4) printf "\033[28G %sStandalone Installer%s", dim, rst;
     else if (NR == 5) printf "\033[28G %s────────────────────%s", dim, rst;
-    else if (NR == 6) printf "\033[28G %sTarget:%s  %s", dim, rst, (cols >= 54 ? "Termux/PRoot" : "Termux");
-    else if (NR == 7) printf "\033[28G %sArch:%s    %s", dim, rst, arch;
-    else if (NR == 8) printf "\033[28G %sStatus:%s  %sOffline Build%s", dim, rst, grn, rst;
+    else if (NR == 6) printf "\033[28G %sEnv:%s    %s", dim, rst, env;
     printf "\n";
   } else {
     print $0;
@@ -189,13 +186,11 @@ END {
     printf "  %sAntigravity Termux%s\n", bold, rst;
     printf "  %sStandalone Installer%s\n", dim, rst;
     printf "  %s────────────────────%s\n", dim, rst;
-    printf "  %sTarget:%s  Termux/PRoot\n", dim, rst;
-    printf "  %sArch:%s    %s\n", dim, rst, arch;
-    printf "  %sStatus:%s  %sOffline Build%s\n", dim, rst, grn, rst;
+    printf "  %sEnv:%s    %s\n", dim, rst, env;
   }
 }' "$TMP_LOGO"
 echo ""
-divider
+sep
 
 # ── Architecture Check ────────────────────────────────────────────────────────
 [[ "$(uname -m)" == "aarch64" ]] || die "Architecture must be aarch64"
@@ -290,8 +285,8 @@ check_and_install_dependencies() {
         to_install+=("glibc-repo" "glibc")
       fi
 
-      printf "\n  %b[!]%b Missing required build tools/dependencies.\n" "$RED" "$RESET"
-      printf "  Would you like to install %s now via pkg? [Y/n]: " "${to_install[*]}"
+      printf '\n  %b\n' "${R}✗${N} Missing: ${B}${to_install[*]}${N}"
+      printf '  Install now? [Y/n]: '
       read -r -n 1 ans < /dev/tty || ans="y"
       printf "\n"
       if [[ "$ans" =~ ^[Yy]$ ]] || [[ -z "$ans" ]]; then
@@ -371,10 +366,9 @@ check_and_install_dependencies() {
         die "No supported package manager found (apt-get, apk, pacman, dnf). Please install the missing tools manually: ${missing[*]}"
       fi
 
-      printf "\n  %b[!]%b Missing required build tools: %s %s\n" "$RED" "$RESET" "${missing[*]}" "$([[ $compiler_found -eq 0 ]] && echo 'clang/gcc' || echo '')"
-      printf "  The following installation command will be executed:\n"
-      printf "    %b%s%b\n\n" "$BOLD" "$show_cmd" "$RESET"
-      printf "  Press Enter to run it (may ask for password), or type 'c' to cancel: "
+      printf '\n  %b\n' "${R}✗${N} Missing: ${B}${missing[*]}${N} $([[ $compiler_found -eq 0 ]] && echo "${B}clang/gcc${N}" || echo '')"
+      printf '  %b\n\n' "${D}$ ${N}${show_cmd}"
+      printf '  Enter to install, c to cancel: '
       
       local ans=""
       read -r ans < /dev/tty || ans="c"
@@ -404,7 +398,7 @@ check_and_install_dependencies() {
 
 check_and_install_dependencies
 
-ok "Environment: ${ENV_TYPE} (aarch64)"
+
 
 # ── Resolve or Download Google Binary ─────────────────────────────────────────
 if [[ -n "$UPSTREAM_BIN" ]]; then
@@ -770,30 +764,20 @@ if [[ ! -f "$INSTALL_BIN_DIR/agy" || ! -f "$INSTALL_BIN_DIR/agy.va39" ]]; then
   die "Verification failed: binaries not found in $INSTALL_BIN_DIR"
 fi
 
-ok "Verification completed."
+ok "Verified."
 
 # ── Done ──────────────────────────────────────────────────────────────────────
-printf '\n%b\n' "${GREEN}${BOLD}Installation Complete.${RESET}"
-divider
-info "Installed binaries to: ${BOLD}$INSTALL_BIN_DIR${RESET}"
+echo ""
+sep
+printf '  %b\n' "${G}${B}Done.${N} Installed to ${D}${INSTALL_BIN_DIR}${N}"
 
 case ":$PATH:" in
   *":$INSTALL_BIN_DIR:"*) ;;
   *)
-    cat >&2 <<EOF
-${RED}${BOLD}Warning:${RESET} ${BOLD}$INSTALL_BIN_DIR${RESET} is not in PATH for this shell.
-Please add this to your shell profile (e.g., ~/.bashrc or ~/.zshrc):
-
-  export PATH="$INSTALL_BIN_DIR:\$PATH"
-
-EOF
+    printf '\n  %b\n' "${R}!${N} ${B}${INSTALL_BIN_DIR}${N} is not in your PATH."
+    printf '  %b\n\n' "${D}Add to ~/.bashrc:${N}  export PATH=\"${INSTALL_BIN_DIR}:\$PATH\""
     ;;
 esac
 
-# ── Launch ────────────────────────────────────────────────────────────────────
-info "Launching Antigravity CLI..."
-
-export PATH="$INSTALL_BIN_DIR:$PATH"
 INSTALL_SUCCESS=1
 cleanup
-exec "$INSTALL_BIN_DIR/agy"
