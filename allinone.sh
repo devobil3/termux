@@ -67,9 +67,143 @@ sep() { printf '  %b\n' "${D}─────────────────
 BUILD_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'agy-build')
 ALL_SUCCESS=0
 
+# Global backup variables for rolling back changes on failure
+CLI_AGY_BAK=""
+CLI_AGY_VA39_BAK=""
+
+DESKTOP_DIR_BAK=""
+DESKTOP_DIR_CREATED_FRESH=0
+DESKTOP_WRAPPER_BAK=""
+DESKTOP_WRAPPER_CREATED_FRESH=0
+DESKTOP_FILE_BAK=""
+DESKTOP_FILE_CREATED_FRESH=0
+DESKTOP_ICON_BAK=""
+DESKTOP_ICON_CREATED_FRESH=0
+
+IDE_DIR_BAK=""
+IDE_DIR_CREATED_FRESH=0
+IDE_BIN_BAK=""
+IDE_BIN_CREATED_FRESH=0
+IDE_DESKTOP_BAK=""
+IDE_DESKTOP_CREATED_FRESH=0
+IDE_ICON_BAK=""
+IDE_ICON_CREATED_FRESH=0
+IDE_LIB_SO_BAK=""
+IDE_LIB_SO_CREATED_FRESH=0
+
 cleanup() {
   printf "\033[?25h"
+  # Clean up temporary files / build dir
   [[ -n "${BUILD_DIR:-}" && -d "$BUILD_DIR" ]] && rm -rf "$BUILD_DIR"
+
+  if [[ "${ALL_SUCCESS:-0}" -ne 1 ]]; then
+    info "Installation failed or interrupted! Reverting all changes..."
+
+    # --- CLI Rollback ---
+    if [[ -n "$CLI_AGY_BAK" && -f "$CLI_AGY_BAK" ]]; then
+      rm -f "$INSTALL_BIN_DIR/agy"
+      mv "$CLI_AGY_BAK" "$INSTALL_BIN_DIR/agy"
+    fi
+    if [[ -n "$CLI_AGY_VA39_BAK" && -f "$CLI_AGY_VA39_BAK" ]]; then
+      rm -f "$INSTALL_BIN_DIR/agy.va39"
+      mv "$CLI_AGY_VA39_BAK" "$INSTALL_BIN_DIR/agy.va39"
+    fi
+
+    # --- Desktop Rollback ---
+    local desktop_target_dir="$HOME/.local/share/Antigravity-arm64"
+    local desktop_wrapper="$INSTALL_BIN_DIR/antigravity"
+    local desktop_file="$HOME/.local/share/applications/antigravity.desktop"
+    local desktop_icon="$HOME/.local/share/icons/antigravity.png"
+
+    if [[ -n "$DESKTOP_DIR_BAK" && -d "$DESKTOP_DIR_BAK" ]]; then
+      rm -rf "$desktop_target_dir"
+      mv "$DESKTOP_DIR_BAK" "$desktop_target_dir"
+      info "Restored previous Desktop target directory."
+    elif [[ "$DESKTOP_DIR_CREATED_FRESH" -eq 1 ]]; then
+      rm -rf "$desktop_target_dir"
+    fi
+    
+    if [[ -n "$DESKTOP_WRAPPER_BAK" && -f "$DESKTOP_WRAPPER_BAK" ]]; then
+      rm -f "$desktop_wrapper"
+      mv "$DESKTOP_WRAPPER_BAK" "$desktop_wrapper"
+    elif [[ "$DESKTOP_WRAPPER_CREATED_FRESH" -eq 1 ]]; then
+      rm -f "$desktop_wrapper"
+    fi
+    
+    if [[ -n "$DESKTOP_FILE_BAK" && -f "$DESKTOP_FILE_BAK" ]]; then
+      rm -f "$desktop_file"
+      mv "$DESKTOP_FILE_BAK" "$desktop_file"
+    elif [[ "$DESKTOP_FILE_CREATED_FRESH" -eq 1 ]]; then
+      rm -f "$desktop_file"
+    fi
+
+    if [[ -n "$DESKTOP_ICON_BAK" && -f "$DESKTOP_ICON_BAK" ]]; then
+      rm -f "$desktop_icon"
+      mv "$DESKTOP_ICON_BAK" "$desktop_icon"
+    elif [[ "$DESKTOP_ICON_CREATED_FRESH" -eq 1 ]]; then
+      rm -f "$desktop_icon"
+    fi
+
+    # --- IDE Rollback ---
+    local ide_target_dir="$HOME/.local/share/Antigravity IDE"
+    local ide_bin="$INSTALL_BIN_DIR/antigravity-ide"
+    local ide_desktop="$HOME/.local/share/applications/antigravity-ide.desktop"
+    local ide_icon="$HOME/.local/share/icons/antigravity-ide.png"
+    local ide_lib_so="$HOME/.local/lib/libmmap_va39_fix.so"
+
+    if [[ -n "$IDE_DIR_BAK" && -d "$IDE_DIR_BAK" ]]; then
+      rm -rf "$ide_target_dir"
+      mv "$IDE_DIR_BAK" "$ide_target_dir"
+      info "Restored previous IDE target directory."
+    elif [[ "$IDE_DIR_CREATED_FRESH" -eq 1 ]]; then
+      rm -rf "$ide_target_dir"
+    fi
+
+    if [[ -n "$IDE_BIN_BAK" && -f "$IDE_BIN_BAK" ]]; then
+      rm -f "$ide_bin"
+      mv "$IDE_BIN_BAK" "$ide_bin"
+    elif [[ "$IDE_BIN_CREATED_FRESH" -eq 1 ]]; then
+      rm -f "$ide_bin"
+    fi
+
+
+
+    if [[ -n "$IDE_DESKTOP_BAK" && -f "$IDE_DESKTOP_BAK" ]]; then
+      rm -f "$ide_desktop"
+      mv "$IDE_DESKTOP_BAK" "$ide_desktop"
+    elif [[ "$IDE_DESKTOP_CREATED_FRESH" -eq 1 ]]; then
+      rm -f "$ide_desktop"
+    fi
+
+    if [[ -n "$IDE_ICON_BAK" && -f "$IDE_ICON_BAK" ]]; then
+      rm -f "$ide_icon"
+      mv "$IDE_ICON_BAK" "$ide_icon"
+    elif [[ "$IDE_ICON_CREATED_FRESH" -eq 1 ]]; then
+      rm -f "$ide_icon"
+    fi
+
+    if [[ -n "$IDE_LIB_SO_BAK" && -f "$IDE_LIB_SO_BAK" ]]; then
+      rm -f "$ide_lib_so"
+      mv "$IDE_LIB_SO_BAK" "$ide_lib_so"
+    elif [[ "$IDE_LIB_SO_CREATED_FRESH" -eq 1 ]]; then
+      rm -f "$ide_lib_so"
+    fi
+  else
+    # Success: delete all backups
+    [[ -n "$CLI_AGY_BAK" && -f "$CLI_AGY_BAK" ]] && rm -f "$CLI_AGY_BAK"
+    [[ -n "$CLI_AGY_VA39_BAK" && -f "$CLI_AGY_VA39_BAK" ]] && rm -f "$CLI_AGY_VA39_BAK"
+    
+    [[ -n "$DESKTOP_DIR_BAK" && -d "$DESKTOP_DIR_BAK" ]] && rm -rf "$DESKTOP_DIR_BAK"
+    [[ -n "$DESKTOP_WRAPPER_BAK" && -f "$DESKTOP_WRAPPER_BAK" ]] && rm -f "$DESKTOP_WRAPPER_BAK"
+    [[ -n "$DESKTOP_FILE_BAK" && -f "$DESKTOP_FILE_BAK" ]] && rm -f "$DESKTOP_FILE_BAK"
+    [[ -n "$DESKTOP_ICON_BAK" && -f "$DESKTOP_ICON_BAK" ]] && rm -f "$DESKTOP_ICON_BAK"
+    
+    [[ -n "$IDE_DIR_BAK" && -d "$IDE_DIR_BAK" ]] && rm -rf "$IDE_DIR_BAK"
+    [[ -n "$IDE_BIN_BAK" && -f "$IDE_BIN_BAK" ]] && rm -f "$IDE_BIN_BAK"
+    [[ -n "$IDE_DESKTOP_BAK" && -f "$IDE_DESKTOP_BAK" ]] && rm -f "$IDE_DESKTOP_BAK"
+    [[ -n "$IDE_ICON_BAK" && -f "$IDE_ICON_BAK" ]] && rm -f "$IDE_ICON_BAK"
+    [[ -n "$IDE_LIB_SO_BAK" && -f "$IDE_LIB_SO_BAK" ]] && rm -f "$IDE_LIB_SO_BAK"
+  fi
 }
 trap cleanup EXIT
 trap 'die "Installation cancelled by user."' INT TERM
@@ -236,15 +370,27 @@ if [[ $INSTALL_CLI -eq 1 ]]; then
 fi
 
 # Desktop: check for local archive
-DESKTOP_ARCHIVE="Antigravity.tar.gz"
-if [[ $INSTALL_DESKTOP -eq 1 && ! -f "$DESKTOP_ARCHIVE" ]]; then
-  NEED_DOWNLOAD=1
+DESKTOP_ARCHIVE_NAME="Antigravity.tar.gz"
+if [[ -f "$DESKTOP_ARCHIVE_NAME" ]]; then
+  info "Using local archive: $DESKTOP_ARCHIVE_NAME"
+  DESKTOP_ARCHIVE="$(pwd)/$DESKTOP_ARCHIVE_NAME"
+else
+  if [[ $INSTALL_DESKTOP -eq 1 ]]; then
+    NEED_DOWNLOAD=1
+  fi
+  DESKTOP_ARCHIVE="${BUILD_DIR}/$DESKTOP_ARCHIVE_NAME"
 fi
 
 # IDE: check for local archive
-IDE_ARCHIVE="Antigravity IDE.tar.gz"
-if [[ $INSTALL_IDE -eq 1 && ! -f "$IDE_ARCHIVE" ]]; then
-  NEED_DOWNLOAD=1
+IDE_ARCHIVE_NAME="Antigravity IDE.tar.gz"
+if [[ -f "$IDE_ARCHIVE_NAME" ]]; then
+  info "Using local archive: $IDE_ARCHIVE_NAME"
+  IDE_ARCHIVE="$(pwd)/$IDE_ARCHIVE_NAME"
+else
+  if [[ $INSTALL_IDE -eq 1 ]]; then
+    NEED_DOWNLOAD=1
+  fi
+  IDE_ARCHIVE="${BUILD_DIR}/$IDE_ARCHIVE_NAME"
 fi
 
 # ── Prerequisite Check & Install ──────────────────────────────────────────────
@@ -712,22 +858,17 @@ pathlib.Path('${BUILD_DIR}/mmap_va39_fix_bytes.h').write_text(
   # ── Install ──
   mkdir -p "$INSTALL_BIN_DIR"
 
-  local agy_bak="" agy_va39_bak=""
   if [[ -f "$INSTALL_BIN_DIR/agy" ]]; then
-    agy_bak="$INSTALL_BIN_DIR/agy.bak.$$"
-    mv -f "$INSTALL_BIN_DIR/agy" "$agy_bak"
+    CLI_AGY_BAK="$INSTALL_BIN_DIR/agy.bak.$$"
+    mv -f "$INSTALL_BIN_DIR/agy" "$CLI_AGY_BAK"
   fi
   if [[ -f "$INSTALL_BIN_DIR/agy.va39" ]]; then
-    agy_va39_bak="$INSTALL_BIN_DIR/agy.va39.bak.$$"
-    mv -f "$INSTALL_BIN_DIR/agy.va39" "$agy_va39_bak"
+    CLI_AGY_VA39_BAK="$INSTALL_BIN_DIR/agy.va39.bak.$$"
+    mv -f "$INSTALL_BIN_DIR/agy.va39" "$CLI_AGY_VA39_BAK"
   fi
 
   install -m 0755 "${BUILD_DIR}/agy"      "$INSTALL_BIN_DIR/agy"      || die "CLI: Failed to install agy"
   install -m 0755 "${BUILD_DIR}/agy.va39" "$INSTALL_BIN_DIR/agy.va39" || die "CLI: Failed to install agy.va39"
-
-  # Cleanup backups on success
-  [[ -n "$agy_bak" && -f "$agy_bak" ]] && rm -f "$agy_bak"
-  [[ -n "$agy_va39_bak" && -f "$agy_va39_bak" ]] && rm -f "$agy_va39_bak"
 
   ok "CLI installed → ${D}${INSTALL_BIN_DIR}/agy${N}"
 }
@@ -758,7 +899,7 @@ install_desktop() {
     [[ -z "$pkgver" || -z "$_build" ]] && die "Desktop: Failed to parse pkgver/_build."
     info "Latest: v${pkgver}-${_build}"
     info "Downloading $DESKTOP_ARCHIVE..."
-    curl -fL -o "$DESKTOP_ARCHIVE" "https://storage.googleapis.com/antigravity-public/antigravity-hub/${pkgver}-${_build}/linux-arm/Antigravity.tar.gz" || { rm -f "$DESKTOP_ARCHIVE"; die "Desktop: Download failed."; }
+    curl -fsSL -o "$DESKTOP_ARCHIVE" "https://storage.googleapis.com/antigravity-public/antigravity-hub/${pkgver}-${_build}/linux-arm/Antigravity.tar.gz" || { rm -f "$DESKTOP_ARCHIVE"; die "Desktop: Download failed."; }
     ok "Downloaded $DESKTOP_ARCHIVE"
   fi
 
@@ -769,10 +910,37 @@ install_desktop() {
   local SRC_DIR="${BUILD_DIR}/desktop_extract/Antigravity-arm64"
   [[ -d "$SRC_DIR" ]] || die "Desktop: Antigravity-arm64 folder not found in archive."
 
-  # ── Install to target ──
-  info "Installing to $TARGET_DIR..."
+  # Backup existing Desktop files to allow rollback
+  if [[ -d "$TARGET_DIR" ]]; then
+    info "Backing up existing Desktop installation directory..."
+    DESKTOP_DIR_BAK="${TARGET_DIR}.bak.$$"
+    mv "$TARGET_DIR" "$DESKTOP_DIR_BAK"
+  else
+    DESKTOP_DIR_CREATED_FRESH=1
+  fi
+
+  if [[ -f "$WRAPPER" ]]; then
+    DESKTOP_WRAPPER_BAK="${WRAPPER}.bak.$$"
+    mv "$WRAPPER" "$DESKTOP_WRAPPER_BAK"
+  else
+    DESKTOP_WRAPPER_CREATED_FRESH=1
+  fi
+
+  if [[ -f "$DESKTOP_FILE" ]]; then
+    DESKTOP_FILE_BAK="${DESKTOP_FILE}.bak.$$"
+    mv "$DESKTOP_FILE" "$DESKTOP_FILE_BAK"
+  else
+    DESKTOP_FILE_CREATED_FRESH=1
+  fi
+
+  if [[ -f "$ICON_DST" ]]; then
+    DESKTOP_ICON_BAK="${ICON_DST}.bak.$$"
+    mv "$ICON_DST" "$DESKTOP_ICON_BAK"
+  else
+    DESKTOP_ICON_CREATED_FRESH=1
+  fi
+
   mkdir -p "$(dirname "$TARGET_DIR")"
-  [[ -d "$TARGET_DIR" ]] && rm -rf "$TARGET_DIR"
   mv "$SRC_DIR" "$TARGET_DIR"
 
   # ── Icon ──
@@ -893,14 +1061,54 @@ install_ide() {
     [[ -z "$pkgver" || -z "$_build" ]] && die "IDE: Failed to parse pkgver/_build."
     info "Latest: v${pkgver}-${_build}"
     info "Downloading $IDE_ARCHIVE..."
-    curl -fL -o "$IDE_ARCHIVE" "https://dl.google.com/release2/j0qc3/antigravity/stable/${pkgver}-${_build}/linux-arm/Antigravity%20IDE.tar.gz" || { rm -f "$IDE_ARCHIVE"; die "IDE: Download failed."; }
+    curl -fsSL -o "$IDE_ARCHIVE" "https://dl.google.com/release2/j0qc3/antigravity/stable/${pkgver}-${_build}/linux-arm/Antigravity%20IDE.tar.gz" || { rm -f "$IDE_ARCHIVE"; die "IDE: Download failed."; }
     ok "Downloaded $IDE_ARCHIVE"
   fi
 
-  # ── Extract ──
-  info "Extracting $IDE_ARCHIVE..."
+  # Backup existing IDE files to allow rollback
+  if [[ -d "$INSTALL_DIR" ]]; then
+    info "Backing up existing IDE installation directory..."
+    IDE_DIR_BAK="${INSTALL_DIR}.bak.$$"
+    mv "$INSTALL_DIR" "$IDE_DIR_BAK"
+  else
+    IDE_DIR_CREATED_FRESH=1
+  fi
+
+  local ide_bin="$INSTALL_BIN_DIR/antigravity-ide"
+  if [[ -f "$ide_bin" || -L "$ide_bin" ]]; then
+    IDE_BIN_BAK="${ide_bin}.bak.$$"
+    mv "$ide_bin" "$IDE_BIN_BAK"
+  else
+    IDE_BIN_CREATED_FRESH=1
+  fi
+
+
+
+  local ide_desktop="$APPLICATIONS_DIR/antigravity-ide.desktop"
+  if [[ -f "$ide_desktop" ]]; then
+    IDE_DESKTOP_BAK="${ide_desktop}.bak.$$"
+    mv "$ide_desktop" "$IDE_DESKTOP_BAK"
+  else
+    IDE_DESKTOP_CREATED_FRESH=1
+  fi
+
+  local ide_icon="$ICONS_DIR/antigravity-ide.png"
+  if [[ -f "$ide_icon" ]]; then
+    IDE_ICON_BAK="${ide_icon}.bak.$$"
+    mv "$ide_icon" "$IDE_ICON_BAK"
+  else
+    IDE_ICON_CREATED_FRESH=1
+  fi
+
+  local ide_lib_so="$LIB_DIR/libmmap_va39_fix.so"
+  if [[ -f "$ide_lib_so" ]]; then
+    IDE_LIB_SO_BAK="${ide_lib_so}.bak.$$"
+    mv "$ide_lib_so" "$IDE_LIB_SO_BAK"
+  else
+    IDE_LIB_SO_CREATED_FRESH=1
+  fi
+
   mkdir -p "$INSTALL_BIN_DIR" "$APPLICATIONS_DIR" "$ICONS_DIR" "$LIB_DIR"
-  [[ -d "$INSTALL_DIR" ]] && rm -rf "$INSTALL_DIR"
   tar -xf "$IDE_ARCHIVE" -C "$HOME/.local/share/"
 
   # ── Adjust Electron startup ──
@@ -909,19 +1117,7 @@ install_ide() {
   sed -i 's|ELECTRON_RUN_AS_NODE=1 "$ELECTRON" "$CLI" "$@"|ELECTRON_RUN_AS_NODE=1 "$ELECTRON" "$CLI" --no-sandbox "$@"|g' "$IDE_SCRIPT"
   chmod +x "$IDE_SCRIPT"
 
-  # ── Login helper ──
-  local LOGIN_HELPER="$INSTALL_DIR/bin/antigravity-login"
-  cat > "$LOGIN_HELPER" << 'LEOF'
-#!/usr/bin/env sh
-LOG_FILE=$(find "$HOME/.config/Antigravity IDE/logs" -name "auth.log" 2>/dev/null | sort | tail -n 1)
-[ -z "$LOG_FILE" ] || [ ! -f "$LOG_FILE" ] && { echo "Error: No auth log found. Click 'Continue with Google' in the IDE first."; exit 1; }
-LOGIN_URL=$(grep -o 'https://accounts.google.com/o/oauth2/v2/auth[^[:space:]]*' "$LOG_FILE" | tail -n 1)
-[ -z "$LOGIN_URL" ] && { echo "Error: No Login URL found. Click 'Continue with Google' first."; exit 1; }
-LOGIN_URL=$(printf '%b' "$LOGIN_URL" | sed 's/\\u0026/\&/g')
-echo ""; echo "Open this URL in your browser:"; echo "$LOGIN_URL"; echo ""
-command -v xdg-open >/dev/null 2>&1 && xdg-open "$LOGIN_URL" >/dev/null 2>&1 &
-LEOF
-  chmod +x "$LOGIN_HELPER"
+
 
   # ── Interposer ──
   cp "${BUILD_DIR}/libmmap_va39_fix.so" "$LIB_DIR/libmmap_va39_fix.so"
