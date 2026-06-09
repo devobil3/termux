@@ -289,36 +289,42 @@ sep
 [[ "$(uname -m)" == "aarch64" ]] || die "Architecture must be aarch64"
 
 # ── Product Selection ─────────────────────────────────────────────────────────
-printf '\n'
-printf '  %b\n' "${B}Select products to install:${N}"
-printf '\n'
-printf '  %b\n' "${C}1${N}  Antigravity CLI ${D}(agy — standalone terminal agent)${N}"
-printf '  %b\n' "${C}2${N}  Antigravity IDE ${D}(VS Code-based agentic IDE)${N}"
-printf '  %b\n' "${C}3${N}  Antigravity 2.0 ${D}(Desktop Electron application)${N}"
-printf '\n'
-printf '  %b' "${D}Enter choice (e.g. ${N}${B}1${N}${D}, ${N}${B}13${N}${D}, ${N}${B}123${N}${D}):${N} "
-
-SELECTION=""
-read -r SELECTION < /dev/tty || true
-
-if [[ -z "$SELECTION" ]]; then
-  die "No selection made."
-fi
-
-# Deduplicate and validate
 INSTALL_CLI=0
 INSTALL_IDE=0
 INSTALL_DESKTOP=0
 
-for (( i=0; i<${#SELECTION}; i++ )); do
-  ch="${SELECTION:$i:1}"
-  case "$ch" in
-    1) INSTALL_CLI=1 ;;
-    2) INSTALL_IDE=1 ;;
-    3) INSTALL_DESKTOP=1 ;;
-    *) die "Invalid selection: '$ch'. Use 1, 2, or 3." ;;
-  esac
-done
+if [[ "$ENV_TYPE" == "termux" ]]; then
+  warn "IDE and Desktop are not supported natively on Termux due to missing GUI library dependencies."
+  info "Directly routing to Antigravity CLI installation..."
+  INSTALL_CLI=1
+else
+  printf '\n'
+  printf '  %b\n' "${B}Select products to install:${N}"
+  printf '\n'
+  printf '  %b\n' "${C}1${N}  Antigravity CLI ${D}(agy — standalone terminal agent)${N}"
+  printf '  %b\n' "${C}2${N}  Antigravity IDE ${D}(VS Code-based agentic IDE)${N}"
+  printf '  %b\n' "${C}3${N}  Antigravity 2.0 ${D}(Desktop Electron application)${N}"
+  printf '\n'
+  printf '  %b' "${D}Enter choice (e.g. ${N}${B}1${N}${D}, ${N}${B}13${N}${D}, ${N}${B}123${N}${D}):${N} "
+
+  SELECTION=""
+  read -r SELECTION < /dev/tty || true
+
+  if [[ -z "$SELECTION" ]]; then
+    die "No selection made."
+  fi
+
+  # Deduplicate and validate
+  for (( i=0; i<${#SELECTION}; i++ )); do
+    ch="${SELECTION:$i:1}"
+    case "$ch" in
+      1) INSTALL_CLI=1 ;;
+      2) INSTALL_IDE=1 ;;
+      3) INSTALL_DESKTOP=1 ;;
+      *) die "Invalid selection: '$ch'. Use 1, 2, or 3." ;;
+    esac
+  done
+fi
 
 # Build summary
 SELECTED_NAMES=()
@@ -623,25 +629,17 @@ int main(int argc, char **argv) {
     char exec_path[PATH_MAX];
     char patched_bin[PATH_MAX];
     char lib_path[PATH_MAX * 3];
-    const char *loader_primary  = "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1";
-    const char *loader_fallback = "/lib/ld-linux-aarch64.so.1";
-    const char *loader;
+    const char *loader = "/lib/ld-linux-aarch64.so.1";
     const char *dir;
     char interposer[PATH_MAX];
     char **new_argv;
     ssize_t read_len;
     int written, arg_idx, new_argc;
-    int is_termux = 0;
 
-    is_termux = (access("/data/data/com.termux/files/usr/bin", F_OK) == 0);
-
-    if (is_termux) { unsetenv("LD_PRELOAD"); }
     unsetenv("LD_LIBRARY_PATH");
     setenv("GODEBUG", "netdns=cgo", 1);
 
-    if (is_termux) {
-        setenv("SSL_CERT_FILE", "/data/data/com.termux/files/usr/etc/tls/cert.pem", 1);
-    } else if (access("/etc/ssl/certs/ca-certificates.crt", F_OK) == 0) {
+    if (access("/etc/ssl/certs/ca-certificates.crt", F_OK) == 0) {
         setenv("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt", 1);
     }
 
@@ -653,8 +651,6 @@ int main(int argc, char **argv) {
     written = snprintf(patched_bin, sizeof(patched_bin), "%s/%s", dir, PATCHED_BIN_NAME);
     if (written < 0 || written >= (int)sizeof(patched_bin)) return 1;
 
-    loader = (access(loader_primary, F_OK) == 0) ? loader_primary : loader_fallback;
-
     interposer[0] = '\0';
     snprintf(interposer, sizeof(interposer), "%s/%s", dir, INTERPOSER_NAME);
     if (access(interposer, F_OK) != 0) {
@@ -665,13 +661,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (is_termux) {
-        written = snprintf(lib_path, sizeof(lib_path),
-                           "%s:%s/../lib:/data/data/com.termux/files/usr/glibc/lib", dir, dir);
-    } else {
-        written = snprintf(lib_path, sizeof(lib_path),
-                           "%s:%s/../lib:/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib64:/usr/lib64:/lib:/usr/lib", dir, dir);
-    }
+    written = snprintf(lib_path, sizeof(lib_path),
+                       "%s:%s/../lib:/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib64:/usr/lib64:/lib:/usr/lib", dir, dir);
     if (written < 0 || written >= (int)sizeof(lib_path)) return 1;
 
     int has_interposer = (interposer[0] != '\0' && access(interposer, F_OK) == 0);
@@ -1135,6 +1126,9 @@ install_ide() {
   fi
 
   # ── Wrap main IDE binary ──
+  # The Electron binary needs the glibc dynamic linker, which on Termux lives at
+  # a non-standard path. Without this wrapper the kernel can't find the ELF
+  # interpreter and reports "not found".
   local IDE_BIN="$INSTALL_DIR/antigravity-ide"
   if [[ -f "$IDE_BIN" ]]; then
     info "Wrapping main IDE binary..."
