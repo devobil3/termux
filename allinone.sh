@@ -29,12 +29,7 @@ if [[ "$ENV_TYPE" == "unknown" ]]; then
   fi
 fi
 
-if [[ "$ENV_TYPE" == "termux" ]]; then
-  TERMUX_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
-  INSTALL_BIN_DIR="${TERMUX_PREFIX}/bin"
-else
-  INSTALL_BIN_DIR="$HOME/.local/bin"
-fi
+INSTALL_BIN_DIR="$HOME/.local/bin"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
@@ -63,33 +58,121 @@ die() {
 }
 sep() { printf '  %b\n' "${D}─────────────────────────────────${N}"; }
 
+# ── Optimization Helpers ──────────────────────────────────────────────────────
+download_file() {
+  local url="$1"
+  local dest="${2:-}"
+  if [[ -n "$dest" ]]; then
+    curl -fsSL --retry 3 --retry-connrefused --retry-delay 2 -o "$dest" "$url"
+  else
+    curl -fsSL --retry 3 --retry-connrefused --retry-delay 2 "$url"
+  fi
+}
+
+extract_tar() {
+  local archive="$1"
+  local dest_dir="$2"
+  mkdir -p "$dest_dir"
+  if command -v pigz &>/dev/null; then
+    tar -I pigz -xf "$archive" -C "$dest_dir"
+  else
+    tar -xf "$archive" -C "$dest_dir"
+  fi
+}
+
+check_disk_space() {
+  local dest_dir="$1"
+  local required_kb="$2"
+  local test_dir="$dest_dir"
+  while [[ ! -d "$test_dir" && "$test_dir" != "/" ]]; do
+    test_dir=$(dirname "$test_dir")
+  done
+  local available_kb
+  available_kb=$(df -Pk "$test_dir" 2>/dev/null | awk 'NR==2 {print $4}')
+  if [[ -n "$available_kb" && "$available_kb" -lt "$required_kb" ]]; then
+    local required_mb=$((required_kb / 1024))
+    local available_mb=$((available_kb / 1024))
+    warn "Low disk space on $dest_dir: Available: ${available_mb}MB, Required: ${required_mb}MB"
+    printf '  Continue anyway? [y/N]: '
+    local space_ans=""
+    read -r space_ans < /dev/tty || space_ans="n"
+    [[ "$space_ans" =~ ^[Yy]$ ]] || die "Installation cancelled due to low disk space."
+  fi
+}
+
+create_bash_wrapper() {
+  local wrapper_path="$1"
+  local patched_bin_name="$2"
+  
+  cat << 'EOF' > "$wrapper_path"
+#!/usr/bin/env bash
+# Antigravity Dynamic Loader Wrapper
+set -eu
+
+# Resolve directory dynamically
+DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")")"
+
+unset LD_LIBRARY_PATH
+export GODEBUG=netdns=cgo
+
+if [[ -f "/etc/ssl/certs/ca-certificates.crt" ]]; then
+  export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
+fi
+
+# Search for interposer up directory tree
+INTERPOSER=""
+TEMP_DIR="$DIR"
+while [[ "$TEMP_DIR" != "/" && "$TEMP_DIR" != "." ]]; do
+  if [[ -f "$TEMP_DIR/libmmap_va39_fix.so" ]]; then
+    INTERPOSER="$TEMP_DIR/libmmap_va39_fix.so"
+    break
+  fi
+  TEMP_DIR=$(dirname "$TEMP_DIR")
+done
+
+if [[ -z "$INTERPOSER" ]]; then
+  if [[ -f "$HOME/.local/share/Antigravity IDE/libmmap_va39_fix.so" ]]; then
+    INTERPOSER="$HOME/.local/share/Antigravity IDE/libmmap_va39_fix.so"
+  elif [[ -f "$HOME/.local/lib/libmmap_va39_fix.so" ]]; then
+    INTERPOSER="$HOME/.local/lib/libmmap_va39_fix.so"
+  fi
+fi
+
+LOADER="/lib/ld-linux-aarch64.so.1"
+LIB_PATH="$DIR:$DIR/../lib:/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib64:/usr/lib64:/lib:/usr/lib"
+PATCHED_BIN="$DIR/PATCHED_BIN_PLACEHOLDER"
+
+if [[ -n "$INTERPOSER" && -f "$INTERPOSER" ]]; then
+  exec "$LOADER" --preload "$INTERPOSER" --library-path "$LIB_PATH" "$PATCHED_BIN" "$@"
+else
+  exec "$LOADER" --library-path "$LIB_PATH" "$PATCHED_BIN" "$@"
+fi
+EOF
+
+  sed -i "s|PATCHED_BIN_PLACEHOLDER|$patched_bin_name|g" "$wrapper_path"
+  chmod +x "$wrapper_path"
+}
+
 # ── Temp dir & cleanup ────────────────────────────────────────────────────────
 BUILD_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'agy-build')
 ALL_SUCCESS=0
 
-# Global backup variables for rolling back changes on failure
-CLI_AGY_BAK=""
-CLI_AGY_VA39_BAK=""
+# Global rollback registries
+declare -A BACKUPS
+declare -A CREATED_FRESH
 
-DESKTOP_DIR_BAK=""
-DESKTOP_DIR_CREATED_FRESH=0
-DESKTOP_WRAPPER_BAK=""
-DESKTOP_WRAPPER_CREATED_FRESH=0
-DESKTOP_FILE_BAK=""
-DESKTOP_FILE_CREATED_FRESH=0
-DESKTOP_ICON_BAK=""
-DESKTOP_ICON_CREATED_FRESH=0
+# Helper to register a backup
+register_backup() {
+  local target="$1"
+  local bak_path="$2"
+  BACKUPS["$target"]="$bak_path"
+}
 
-IDE_DIR_BAK=""
-IDE_DIR_CREATED_FRESH=0
-IDE_BIN_BAK=""
-IDE_BIN_CREATED_FRESH=0
-IDE_DESKTOP_BAK=""
-IDE_DESKTOP_CREATED_FRESH=0
-IDE_ICON_BAK=""
-IDE_ICON_CREATED_FRESH=0
-IDE_LIB_SO_BAK=""
-IDE_LIB_SO_CREATED_FRESH=0
+# Helper to register a freshly created file/dir
+register_fresh() {
+  local target="$1"
+  CREATED_FRESH["$target"]=1
+}
 
 cleanup() {
   printf "\033[?25h"
@@ -98,111 +181,28 @@ cleanup() {
 
   if [[ "${ALL_SUCCESS:-0}" -ne 1 ]]; then
     info "Installation failed or interrupted! Reverting all changes..."
-
-    # --- CLI Rollback ---
-    if [[ -n "$CLI_AGY_BAK" && -f "$CLI_AGY_BAK" ]]; then
-      rm -f "$INSTALL_BIN_DIR/agy"
-      mv "$CLI_AGY_BAK" "$INSTALL_BIN_DIR/agy"
-    fi
-    if [[ -n "$CLI_AGY_VA39_BAK" && -f "$CLI_AGY_VA39_BAK" ]]; then
-      rm -f "$INSTALL_BIN_DIR/agy.va39"
-      mv "$CLI_AGY_VA39_BAK" "$INSTALL_BIN_DIR/agy.va39"
-    fi
-
-    # --- Desktop Rollback ---
-    local desktop_target_dir="$HOME/.local/share/Antigravity-arm64"
-    local desktop_wrapper="$INSTALL_BIN_DIR/antigravity"
-    local desktop_file="$HOME/.local/share/applications/antigravity.desktop"
-    local desktop_icon="$HOME/.local/share/icons/antigravity.png"
-
-    if [[ -n "$DESKTOP_DIR_BAK" && -d "$DESKTOP_DIR_BAK" ]]; then
-      rm -rf "$desktop_target_dir"
-      mv "$DESKTOP_DIR_BAK" "$desktop_target_dir"
-      info "Restored previous Desktop target directory."
-    elif [[ "$DESKTOP_DIR_CREATED_FRESH" -eq 1 ]]; then
-      rm -rf "$desktop_target_dir"
-    fi
     
-    if [[ -n "$DESKTOP_WRAPPER_BAK" && -f "$DESKTOP_WRAPPER_BAK" ]]; then
-      rm -f "$desktop_wrapper"
-      mv "$DESKTOP_WRAPPER_BAK" "$desktop_wrapper"
-    elif [[ "$DESKTOP_WRAPPER_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$desktop_wrapper"
-    fi
+    # Generic rollback: restore backed up items
+    for target in "${!BACKUPS[@]}"; do
+      local bak="${BACKUPS[$target]}"
+      if [[ -e "$bak" ]]; then
+        rm -rf "$target"
+        mv "$bak" "$target"
+      fi
+    done
     
-    if [[ -n "$DESKTOP_FILE_BAK" && -f "$DESKTOP_FILE_BAK" ]]; then
-      rm -f "$desktop_file"
-      mv "$DESKTOP_FILE_BAK" "$desktop_file"
-    elif [[ "$DESKTOP_FILE_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$desktop_file"
-    fi
-
-    if [[ -n "$DESKTOP_ICON_BAK" && -f "$DESKTOP_ICON_BAK" ]]; then
-      rm -f "$desktop_icon"
-      mv "$DESKTOP_ICON_BAK" "$desktop_icon"
-    elif [[ "$DESKTOP_ICON_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$desktop_icon"
-    fi
-
-    # --- IDE Rollback ---
-    local ide_target_dir="$HOME/.local/share/Antigravity IDE"
-    local ide_bin="$INSTALL_BIN_DIR/antigravity-ide"
-    local ide_desktop="$HOME/.local/share/applications/antigravity-ide.desktop"
-    local ide_icon="$HOME/.local/share/icons/antigravity-ide.png"
-    local ide_lib_so="$HOME/.local/lib/libmmap_va39_fix.so"
-
-    if [[ -n "$IDE_DIR_BAK" && -d "$IDE_DIR_BAK" ]]; then
-      rm -rf "$ide_target_dir"
-      mv "$IDE_DIR_BAK" "$ide_target_dir"
-      info "Restored previous IDE target directory."
-    elif [[ "$IDE_DIR_CREATED_FRESH" -eq 1 ]]; then
-      rm -rf "$ide_target_dir"
-    fi
-
-    if [[ -n "$IDE_BIN_BAK" && -f "$IDE_BIN_BAK" ]]; then
-      rm -f "$ide_bin"
-      mv "$IDE_BIN_BAK" "$ide_bin"
-    elif [[ "$IDE_BIN_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$ide_bin"
-    fi
-
-
-
-    if [[ -n "$IDE_DESKTOP_BAK" && -f "$IDE_DESKTOP_BAK" ]]; then
-      rm -f "$ide_desktop"
-      mv "$IDE_DESKTOP_BAK" "$ide_desktop"
-    elif [[ "$IDE_DESKTOP_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$ide_desktop"
-    fi
-
-    if [[ -n "$IDE_ICON_BAK" && -f "$IDE_ICON_BAK" ]]; then
-      rm -f "$ide_icon"
-      mv "$IDE_ICON_BAK" "$ide_icon"
-    elif [[ "$IDE_ICON_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$ide_icon"
-    fi
-
-    if [[ -n "$IDE_LIB_SO_BAK" && -f "$IDE_LIB_SO_BAK" ]]; then
-      rm -f "$ide_lib_so"
-      mv "$IDE_LIB_SO_BAK" "$ide_lib_so"
-    elif [[ "$IDE_LIB_SO_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$ide_lib_so"
-    fi
+    # Delete freshly created items
+    for target in "${!CREATED_FRESH[@]}"; do
+      if [[ -e "$target" ]]; then
+        rm -rf "$target"
+      fi
+    done
   else
     # Success: delete all backups
-    [[ -n "$CLI_AGY_BAK" && -f "$CLI_AGY_BAK" ]] && rm -f "$CLI_AGY_BAK"
-    [[ -n "$CLI_AGY_VA39_BAK" && -f "$CLI_AGY_VA39_BAK" ]] && rm -f "$CLI_AGY_VA39_BAK"
-    
-    [[ -n "$DESKTOP_DIR_BAK" && -d "$DESKTOP_DIR_BAK" ]] && rm -rf "$DESKTOP_DIR_BAK"
-    [[ -n "$DESKTOP_WRAPPER_BAK" && -f "$DESKTOP_WRAPPER_BAK" ]] && rm -f "$DESKTOP_WRAPPER_BAK"
-    [[ -n "$DESKTOP_FILE_BAK" && -f "$DESKTOP_FILE_BAK" ]] && rm -f "$DESKTOP_FILE_BAK"
-    [[ -n "$DESKTOP_ICON_BAK" && -f "$DESKTOP_ICON_BAK" ]] && rm -f "$DESKTOP_ICON_BAK"
-    
-    [[ -n "$IDE_DIR_BAK" && -d "$IDE_DIR_BAK" ]] && rm -rf "$IDE_DIR_BAK"
-    [[ -n "$IDE_BIN_BAK" && -f "$IDE_BIN_BAK" ]] && rm -f "$IDE_BIN_BAK"
-    [[ -n "$IDE_DESKTOP_BAK" && -f "$IDE_DESKTOP_BAK" ]] && rm -f "$IDE_DESKTOP_BAK"
-    [[ -n "$IDE_ICON_BAK" && -f "$IDE_ICON_BAK" ]] && rm -f "$IDE_ICON_BAK"
-    [[ -n "$IDE_LIB_SO_BAK" && -f "$IDE_LIB_SO_BAK" ]] && rm -f "$IDE_LIB_SO_BAK"
+    for target in "${!BACKUPS[@]}"; do
+      local bak="${BACKUPS[$target]}"
+      [[ -f "$bak" || -d "$bak" ]] && rm -rf "$bak"
+    done
   fi
 }
 trap cleanup EXIT
@@ -605,88 +605,7 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 }
 EOF
 
-# ── Shared: generic_helper.c (Desktop/IDE bootstrapper) ──────────────────────
-cat << 'EOF' > "${BUILD_DIR}/generic_helper.c"
-#include <errno.h>
-#include <libgen.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 
-#ifndef PATCHED_BIN_NAME
-#define PATCHED_BIN_NAME "binary.va39"
-#endif
-
-#ifndef INTERPOSER_NAME
-#define INTERPOSER_NAME "libmmap_va39_fix.so"
-#endif
-
-int main(int argc, char **argv) {
-    char exec_path[PATH_MAX];
-    char patched_bin[PATH_MAX];
-    char lib_path[PATH_MAX * 3];
-    const char *loader = "/lib/ld-linux-aarch64.so.1";
-    const char *dir;
-    char interposer[PATH_MAX];
-    char **new_argv;
-    ssize_t read_len;
-    int written, arg_idx, new_argc;
-
-    unsetenv("LD_LIBRARY_PATH");
-    setenv("GODEBUG", "netdns=cgo", 1);
-
-    if (access("/etc/ssl/certs/ca-certificates.crt", F_OK) == 0) {
-        setenv("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt", 1);
-    }
-
-    read_len = readlink("/proc/self/exe", exec_path, sizeof(exec_path) - 1);
-    if (read_len == -1) return 1;
-    exec_path[read_len] = '\0';
-    dir = dirname(exec_path);
-
-    written = snprintf(patched_bin, sizeof(patched_bin), "%s/%s", dir, PATCHED_BIN_NAME);
-    if (written < 0 || written >= (int)sizeof(patched_bin)) return 1;
-
-    interposer[0] = '\0';
-    snprintf(interposer, sizeof(interposer), "%s/%s", dir, INTERPOSER_NAME);
-    if (access(interposer, F_OK) != 0) {
-        snprintf(interposer, sizeof(interposer), "%s/../../%s", dir, INTERPOSER_NAME);
-        if (access(interposer, F_OK) != 0) {
-            const char *home = getenv("HOME");
-            if (home) snprintf(interposer, sizeof(interposer), "%s/.local/lib/%s", home, INTERPOSER_NAME);
-        }
-    }
-
-    written = snprintf(lib_path, sizeof(lib_path),
-                       "%s:%s/../lib:/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib64:/usr/lib64:/lib:/usr/lib", dir, dir);
-    if (written < 0 || written >= (int)sizeof(lib_path)) return 1;
-
-    int has_interposer = (interposer[0] != '\0' && access(interposer, F_OK) == 0);
-    new_argc = argc + (has_interposer ? 8 : 5);
-    new_argv = malloc((size_t)new_argc * sizeof(*new_argv));
-    if (!new_argv) return 1;
-
-    arg_idx = 0;
-    new_argv[arg_idx++] = (char *)loader;
-    if (has_interposer) {
-        new_argv[arg_idx++] = "--preload";
-        new_argv[arg_idx++] = (char *)interposer;
-    }
-    new_argv[arg_idx++] = "--library-path";
-    new_argv[arg_idx++] = lib_path;
-    new_argv[arg_idx++] = patched_bin;
-    for (int i = 1; i < argc; i++) new_argv[arg_idx++] = argv[i];
-    new_argv[arg_idx] = NULL;
-
-    execv(loader, new_argv);
-    free(new_argv);
-    return 1;
-}
-EOF
 
 # Compile shared interposer .so once
 info "Compiling mmap compatibility layer..."
@@ -701,6 +620,36 @@ install_cli() {
   printf '  %b\n' "${B}${C}[1/3] Antigravity CLI${N}"
   sep
 
+  # ── Existing Installation Check ──
+  if [[ -f "$INSTALL_BIN_DIR/agy" ]]; then
+    warn "An existing installation of Antigravity CLI was detected at $INSTALL_BIN_DIR/agy."
+    info "Reinstalling will update the application binary. Your user data (configurations, logs, and databases in ~/.gemini/ and other directories) will NOT be lost or affected."
+    printf '  Proceed with reinstalling/updating CLI? [Y/n]: '
+    local run_ans=""
+    read -r run_ans < /dev/tty || run_ans="y"
+    if [[ ! "$run_ans" =~ ^[Yy]$ && -n "$run_ans" ]]; then
+      info "Skipping CLI installation."
+      return 0
+    fi
+  fi
+
+  # ── Option to install using official script ──
+  printf '\n  %b\n' "${B}Antigravity CLI Installation Options:${N}"
+  printf '  - %bY%b: Continue CLI installation using this script but WITHOUT patching/wrapping.%b\n' "${G}" "${N}" "${N}"
+  printf '  - %bN%b: Skip CLI installation in this script (e.g. to copy the official command and run it manually in another session: %bcurl -fsSL https://antigravity.google/cli/install.sh | bash%b).%b\n' "${R}" "${N}" "${C}" "${N}" "${N}"
+  printf '  Continue with unpatched installation in this script? [Y/n]: '
+  local opt_ans=""
+  read -r opt_ans < /dev/tty || opt_ans="y"
+  if [[ ! "$opt_ans" =~ ^[Yy]$ && -n "$opt_ans" ]]; then
+    info "Skipping CLI installation in this script."
+    info "You can copy and run this command in a different terminal session:"
+    printf '  %bcurl -fsSL https://antigravity.google/cli/install.sh | bash%b\n\n' "${C}" "${N}"
+    return 0
+  fi
+
+  # ── Disk Space Check ──
+  check_disk_space "$INSTALL_BIN_DIR" 51200 # 50MB
+
   # ── Resolve or download upstream binary ──
   if [[ -n "$CLI_UPSTREAM_BIN" ]]; then
     CLI_UPSTREAM_BIN=$(readlink -f "$CLI_UPSTREAM_BIN" 2>/dev/null || realpath "$CLI_UPSTREAM_BIN" 2>/dev/null || echo "$CLI_UPSTREAM_BIN")
@@ -709,7 +658,7 @@ install_cli() {
   else
     info "Querying latest CLI version from Google..."
     MANIFEST_URL="https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_arm64.json"
-    manifest=$(curl -fsSL "$MANIFEST_URL" || echo "")
+    manifest=$(download_file "$MANIFEST_URL" "" || echo "")
     [[ -z "$manifest" ]] && die "CLI: Failed to query manifest from $MANIFEST_URL"
 
     latest_version=$(echo "$manifest" | jq -r .version)
@@ -717,8 +666,8 @@ install_cli() {
     info "Latest version: v$latest_version"
 
     info "Downloading CLI binary..."
-    curl -fsSL -o "${BUILD_DIR}/cli_upstream.tar.gz" "$download_url" || die "CLI: Download failed"
-    tar -xzf "${BUILD_DIR}/cli_upstream.tar.gz" -C "${BUILD_DIR}/" || die "CLI: Extraction failed"
+    download_file "$download_url" "${BUILD_DIR}/cli_upstream.tar.gz" || die "CLI: Download failed"
+    extract_tar "${BUILD_DIR}/cli_upstream.tar.gz" "${BUILD_DIR}/" || die "CLI: Extraction failed"
 
     if [[ -f "${BUILD_DIR}/antigravity" ]]; then
       CLI_UPSTREAM_BIN="${BUILD_DIR}/antigravity"
@@ -729,137 +678,18 @@ install_cli() {
     fi
   fi
 
-  # ── Write agy_helper.c (with embedded .so bytes) ──
-  info "Writing CLI bootstrapper source..."
-  cat << 'EOF' > "${BUILD_DIR}/agy_helper.c"
-#include "mmap_va39_fix_bytes.h"
-#include <ctype.h>
-#include <errno.h>
-#include <libgen.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
-
-#ifndef AGY_TERMUX_VERSION
-#define AGY_TERMUX_VERSION "1.0.2"
-#endif
-
-const char *unpack_mmap_fixer(void) {
-    static char unpacked_path[PATH_MAX];
-    const char *tmp = getenv("TMPDIR");
-    if (!tmp || tmp[0] == '\0') tmp = "/tmp";
-    int written = snprintf(unpacked_path, sizeof(unpacked_path), "%s/libmmap_va39_fix.so", tmp);
-    if (written < 0 || written >= (int)sizeof(unpacked_path)) return NULL;
-    struct stat st;
-    if (stat(unpacked_path, &st) == 0 && st.st_size == (off_t)mmap_va39_fix_so_len) return unpacked_path;
-    FILE *fp = fopen(unpacked_path, "wb");
-    if (!fp) return NULL;
-    size_t written_bytes = fwrite(mmap_va39_fix_so, 1, mmap_va39_fix_so_len, fp);
-    if (fclose(fp) != 0 || written_bytes != mmap_va39_fix_so_len) { unlink(unpacked_path); return NULL; }
-    if (chmod(unpacked_path, 0755) != 0) return NULL;
-    return unpacked_path;
-}
-
-int main(int argc, char **argv) {
-    char exec_path[PATH_MAX];
-    char lib_path[PATH_MAX * 3];
-    char patched_bin[PATH_MAX];
-    const char *loader = "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1";
-    const char *dir = NULL;
-    const char *fixer_path = NULL;
-    char **new_argv = NULL;
-    int is_termux = 0, arg_idx = 0, written = 0;
-    ssize_t read_len = 0;
-
-    is_termux = (access("/data/data/com.termux/files/usr/bin", F_OK) == 0);
-    if (is_termux) unsetenv("LD_PRELOAD");
-    unsetenv("LD_LIBRARY_PATH");
-    setenv("GODEBUG", "netdns=cgo", 1);
-    if (is_termux) {
-        setenv("SSL_CERT_FILE", "/data/data/com.termux/files/usr/etc/tls/cert.pem", 1);
-    } else if (access("/etc/ssl/certs/ca-certificates.crt", F_OK) == 0) {
-        setenv("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt", 1);
-    }
-
-    read_len = readlink("/proc/self/exe", exec_path, sizeof(exec_path) - 1);
-    if (read_len == -1) return 1;
-    exec_path[read_len] = '\0';
-    dir = dirname(exec_path);
-
-    if (!is_termux) {
-        fixer_path = unpack_mmap_fixer();
-        if (!fixer_path) { fprintf(stderr, "[ERR] Failed to extract PRoot compatibility layer.\n"); return 1; }
-    }
-    if (access(loader, F_OK) != 0) loader = "/lib/ld-linux-aarch64.so.1";
-
-    if (is_termux) {
-        written = snprintf(lib_path, sizeof(lib_path), "%s/../lib:/data/data/com.termux/files/usr/glibc/lib", dir);
-    } else {
-        written = snprintf(lib_path, sizeof(lib_path), "%s/../lib:/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib64:/usr/lib64:/lib:/usr/lib", dir);
-    }
-    if (written < 0 || written >= (int)sizeof(lib_path)) return 1;
-
-    written = snprintf(patched_bin, sizeof(patched_bin), "%s/agy.va39", dir);
-    if (written < 0 || written >= (int)sizeof(patched_bin)) return 1;
-
-    int new_argc = argc + 8;
-    new_argv = malloc((size_t)new_argc * sizeof(*new_argv));
-    if (!new_argv) return 1;
-    new_argv[arg_idx++] = (char *)loader;
-    if (fixer_path) { new_argv[arg_idx++] = "--preload"; new_argv[arg_idx++] = (char *)fixer_path; }
-    new_argv[arg_idx++] = "--library-path";
-    new_argv[arg_idx++] = lib_path;
-    new_argv[arg_idx++] = patched_bin;
-    for (int i = 1; i < argc; i++) new_argv[arg_idx++] = argv[i];
-    new_argv[arg_idx] = NULL;
-
-    if (execv(loader, new_argv) == -1) { perror("[agy-termux] execv failed"); free(new_argv); return 1; }
-}
-EOF
-
-  # ── Generate hex header from .so ──
-  info "Generating byte header..."
-  python3 -c "
-import pathlib
-so_path = pathlib.Path('${BUILD_DIR}/libmmap_va39_fix.so')
-so_data = so_path.read_bytes()
-hex_bytes = ', '.join(f'0x{b:02x}' for b in so_data)
-pathlib.Path('${BUILD_DIR}/mmap_va39_fix_bytes.h').write_text(
-    '// clang-format off\n'
-    '#include <stddef.h>\n'
-    f'static const unsigned char mmap_va39_fix_so[] = {{ {hex_bytes} }};\n'
-    f'static const size_t mmap_va39_fix_so_len = {len(so_data)};\n'
-    '// clang-format on\n'
-)
-"
-
-  # ── Compile CLI bootstrapper ──
-  info "Compiling CLI bootstrapper..."
-  "$local_cc" -O2 -I"${BUILD_DIR}" -o "${BUILD_DIR}/agy" "${BUILD_DIR}/agy_helper.c" || die "CLI: Failed to compile bootstrapper."
-  chmod +x "${BUILD_DIR}/agy"
-
-  # ── Patch upstream binary ──
-  info "Applying VA39 memory patches..."
-  python3 "${BUILD_DIR}/va39_patch.py" "$CLI_UPSTREAM_BIN" "${BUILD_DIR}/agy.va39"
-
-  # ── Install ──
+  # ── Install unpatched binary ──
   mkdir -p "$INSTALL_BIN_DIR"
 
   if [[ -f "$INSTALL_BIN_DIR/agy" ]]; then
-    CLI_AGY_BAK="$INSTALL_BIN_DIR/agy.bak.$$"
-    mv -f "$INSTALL_BIN_DIR/agy" "$CLI_AGY_BAK"
-  fi
-  if [[ -f "$INSTALL_BIN_DIR/agy.va39" ]]; then
-    CLI_AGY_VA39_BAK="$INSTALL_BIN_DIR/agy.va39.bak.$$"
-    mv -f "$INSTALL_BIN_DIR/agy.va39" "$CLI_AGY_VA39_BAK"
+    local cli_bak="$INSTALL_BIN_DIR/agy.bak.$$"
+    mv -f "$INSTALL_BIN_DIR/agy" "$cli_bak"
+    register_backup "$INSTALL_BIN_DIR/agy" "$cli_bak"
+  else
+    register_fresh "$INSTALL_BIN_DIR/agy"
   fi
 
-  install -m 0755 "${BUILD_DIR}/agy"      "$INSTALL_BIN_DIR/agy"      || die "CLI: Failed to install agy"
-  install -m 0755 "${BUILD_DIR}/agy.va39" "$INSTALL_BIN_DIR/agy.va39" || die "CLI: Failed to install agy.va39"
+  install -m 0755 "$CLI_UPSTREAM_BIN" "$INSTALL_BIN_DIR/agy" || die "CLI: Failed to install agy"
 
   ok "CLI installed → ${D}${INSTALL_BIN_DIR}/agy${N}"
 }
@@ -879,56 +709,75 @@ install_desktop() {
   printf '  %b\n' "${B}${C}[2/3] Antigravity 2.0 Desktop${N}"
   sep
 
+  # ── Existing Installation Check ──
+  if [[ -d "$TARGET_DIR" ]]; then
+    warn "An existing installation of Antigravity Desktop was detected at $TARGET_DIR."
+    info "Reinstalling will update the application files. Your user data, configurations, and application state (stored outside the installation directory) will NOT be lost or affected."
+    printf '  Proceed with reinstalling/updating Desktop? [Y/n]: '
+    local run_ans=""
+    read -r run_ans < /dev/tty || run_ans="y"
+    if [[ ! "$run_ans" =~ ^[Yy]$ && -n "$run_ans" ]]; then
+      info "Skipping Desktop installation."
+      return 0
+    fi
+  fi
+
+  # ── Disk Space Check ──
+  check_disk_space "$TARGET_DIR" 307200 # 300MB
+
   # ── Download if needed ──
   if [[ ! -f "$DESKTOP_ARCHIVE" ]]; then
     info "Fetching latest Desktop release from Arch Linux AUR..."
     local pkgbuild pkgver _build
-    pkgbuild=$(curl -fsSL "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=antigravity" || echo "")
+    pkgbuild=$(download_file "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=antigravity" "" || echo "")
     [[ -z "$pkgbuild" ]] && die "Desktop: Failed to retrieve AUR PKGBUILD."
     pkgver=$(echo "$pkgbuild" | grep -E "^pkgver=" | cut -d= -f2 | xargs)
     _build=$(echo "$pkgbuild" | grep -E "^_build=" | cut -d= -f2 | xargs)
     [[ -z "$pkgver" || -z "$_build" ]] && die "Desktop: Failed to parse pkgver/_build."
     info "Latest: v${pkgver}-${_build}"
     info "Downloading $DESKTOP_ARCHIVE..."
-    curl -fsSL -o "$DESKTOP_ARCHIVE" "https://storage.googleapis.com/antigravity-public/antigravity-hub/${pkgver}-${_build}/linux-arm/Antigravity.tar.gz" || { rm -f "$DESKTOP_ARCHIVE"; die "Desktop: Download failed."; }
+    download_file "https://storage.googleapis.com/antigravity-public/antigravity-hub/${pkgver}-${_build}/linux-arm/Antigravity.tar.gz" "$DESKTOP_ARCHIVE" || { rm -f "$DESKTOP_ARCHIVE"; die "Desktop: Download failed."; }
     ok "Downloaded $DESKTOP_ARCHIVE"
   fi
 
   # ── Extract ──
   info "Extracting $DESKTOP_ARCHIVE..."
-  mkdir -p "${BUILD_DIR}/desktop_extract"
-  tar -xf "$DESKTOP_ARCHIVE" -C "${BUILD_DIR}/desktop_extract"
+  extract_tar "$DESKTOP_ARCHIVE" "${BUILD_DIR}/desktop_extract"
   local SRC_DIR="${BUILD_DIR}/desktop_extract/Antigravity-arm64"
   [[ -d "$SRC_DIR" ]] || die "Desktop: Antigravity-arm64 folder not found in archive."
 
   # Backup existing Desktop files to allow rollback
   if [[ -d "$TARGET_DIR" ]]; then
     info "Backing up existing Desktop installation directory..."
-    DESKTOP_DIR_BAK="${TARGET_DIR}.bak.$$"
-    mv "$TARGET_DIR" "$DESKTOP_DIR_BAK"
+    local dir_bak="${TARGET_DIR}.bak.$$"
+    mv "$TARGET_DIR" "$dir_bak"
+    register_backup "$TARGET_DIR" "$dir_bak"
   else
-    DESKTOP_DIR_CREATED_FRESH=1
+    register_fresh "$TARGET_DIR"
   fi
 
   if [[ -f "$WRAPPER" ]]; then
-    DESKTOP_WRAPPER_BAK="${WRAPPER}.bak.$$"
-    mv "$WRAPPER" "$DESKTOP_WRAPPER_BAK"
+    local wrapper_bak="${WRAPPER}.bak.$$"
+    mv "$WRAPPER" "$wrapper_bak"
+    register_backup "$WRAPPER" "$wrapper_bak"
   else
-    DESKTOP_WRAPPER_CREATED_FRESH=1
+    register_fresh "$WRAPPER"
   fi
 
   if [[ -f "$DESKTOP_FILE" ]]; then
-    DESKTOP_FILE_BAK="${DESKTOP_FILE}.bak.$$"
-    mv "$DESKTOP_FILE" "$DESKTOP_FILE_BAK"
+    local file_bak="${DESKTOP_FILE}.bak.$$"
+    mv "$DESKTOP_FILE" "$file_bak"
+    register_backup "$DESKTOP_FILE" "$file_bak"
   else
-    DESKTOP_FILE_CREATED_FRESH=1
+    register_fresh "$DESKTOP_FILE"
   fi
 
   if [[ -f "$ICON_DST" ]]; then
-    DESKTOP_ICON_BAK="${ICON_DST}.bak.$$"
-    mv "$ICON_DST" "$DESKTOP_ICON_BAK"
+    local icon_bak="${ICON_DST}.bak.$$"
+    mv "$ICON_DST" "$icon_bak"
+    register_backup "$ICON_DST" "$icon_bak"
   else
-    DESKTOP_ICON_CREATED_FRESH=1
+    register_fresh "$ICON_DST"
   fi
 
   mkdir -p "$(dirname "$TARGET_DIR")"
@@ -938,28 +787,8 @@ install_desktop() {
   mkdir -p "$(dirname "$ICON_DST")"
   if [[ -f "$ICON_SRC" ]]; then
     cp -f "$ICON_SRC" "$ICON_DST"
-  elif [[ -f "$TARGET_DIR/resources/app.asar" ]]; then
-    python3 -c '
-import sys, json, struct
-def find_file(node, target):
-    if "files" in node:
-        for k, v in node["files"].items():
-            if k == target and "offset" in v: return v
-            res = find_file(v, target)
-            if res: return res
-    return None
-try:
-    with open(sys.argv[1], "rb") as f:
-        f.read(4); hps = struct.unpack("<I", f.read(4))[0]; f.read(4)
-        ss = struct.unpack("<I", f.read(4))[0]; hs = f.read(ss).decode("utf-8")
-        info = find_file(json.loads(hs), "icon.png")
-        if info:
-            f.seek(8 + hps + int(info["offset"]))
-            with open(sys.argv[2], "wb") as out: out.write(f.read(int(info["size"])))
-            sys.exit(0)
-except Exception: pass
-sys.exit(1)
-' "$TARGET_DIR/resources/app.asar" "$ICON_DST" 2>/dev/null || true
+  elif [[ -f "$TARGET_DIR/resources/icon.png" ]]; then
+    cp -f "$TARGET_DIR/resources/icon.png" "$ICON_DST"
   fi
 
   # ── Compile interposer into target ──
@@ -971,14 +800,13 @@ sys.exit(1)
     info "Patching language_server..."
     mv "$TARGET_DIR/resources/bin/language_server" "$TARGET_DIR/resources/bin/language_server.va39"
     python3 "${BUILD_DIR}/va39_patch.py" "$TARGET_DIR/resources/bin/language_server.va39" "$TARGET_DIR/resources/bin/language_server.va39"
-    "$local_cc" -O2 -DPATCHED_BIN_NAME='"language_server.va39"' -o "$TARGET_DIR/resources/bin/language_server" "${BUILD_DIR}/generic_helper.c"
-    chmod 755 "$TARGET_DIR/resources/bin/language_server"
+    create_bash_wrapper "$TARGET_DIR/resources/bin/language_server" "language_server.va39"
   fi
 
   # ── Wrap main binary ──
   info "Wrapping main Electron binary..."
   mv "$TARGET_DIR/antigravity" "$TARGET_DIR/antigravity.va39"
-  "$local_cc" -O2 -DPATCHED_BIN_NAME='"antigravity.va39"' -o "$TARGET_DIR/antigravity" "${BUILD_DIR}/generic_helper.c"
+  create_bash_wrapper "$TARGET_DIR/antigravity" "antigravity.va39"
   chmod 755 "$TARGET_DIR/antigravity"
 
   # ── Create launcher wrapper ──
@@ -1031,7 +859,7 @@ install_ide() {
   local INSTALL_DIR="$HOME/.local/share/Antigravity IDE"
   local APPLICATIONS_DIR="$HOME/.local/share/applications"
   local ICONS_DIR="$HOME/.local/share/icons"
-  local LIB_DIR="$HOME/.local/lib"
+  local LIB_DIR="$INSTALL_DIR"
   local LS_DIR="$INSTALL_DIR/resources/app/extensions/antigravity/bin"
   local LS_BIN="language_server_linux_arm"
   local LS_PATH="$LS_DIR/$LS_BIN"
@@ -1041,74 +869,82 @@ install_ide() {
   printf '  %b\n' "${B}${C}[3/3] Antigravity IDE${N}"
   sep
 
+  # ── Existing Installation Check ──
+  if [[ -d "$INSTALL_DIR" ]]; then
+    warn "An existing installation of Antigravity IDE was detected at $INSTALL_DIR."
+    info "Reinstalling will update the application files. Your custom extensions, settings, and workspace data (stored outside the installation directory) will NOT be lost or affected."
+    printf '  Proceed with reinstalling/updating IDE? [Y/n]: '
+    local run_ans=""
+    read -r run_ans < /dev/tty || run_ans="y"
+    if [[ ! "$run_ans" =~ ^[Yy]$ && -n "$run_ans" ]]; then
+      info "Skipping IDE installation."
+      return 0
+    fi
+  fi
+
+  # ── Disk Space Check ──
+  check_disk_space "$INSTALL_DIR" 819200 # 800MB
+
   # ── Download if needed ──
   if [[ ! -f "$IDE_ARCHIVE" ]]; then
     info "Fetching latest IDE release from Arch Linux AUR..."
     local pkgbuild pkgver _build
-    pkgbuild=$(curl -fsSL "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=antigravity-ide" || echo "")
+    pkgbuild=$(download_file "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=antigravity-ide" "" || echo "")
     [[ -z "$pkgbuild" ]] && die "IDE: Failed to retrieve AUR PKGBUILD."
     pkgver=$(echo "$pkgbuild" | grep -E "^pkgver=" | cut -d= -f2 | xargs)
     _build=$(echo "$pkgbuild" | grep -E "^_build=" | cut -d= -f2 | xargs)
     [[ -z "$pkgver" || -z "$_build" ]] && die "IDE: Failed to parse pkgver/_build."
     info "Latest: v${pkgver}-${_build}"
     info "Downloading $IDE_ARCHIVE..."
-    curl -fsSL -o "$IDE_ARCHIVE" "https://dl.google.com/release2/j0qc3/antigravity/stable/${pkgver}-${_build}/linux-arm/Antigravity%20IDE.tar.gz" || { rm -f "$IDE_ARCHIVE"; die "IDE: Download failed."; }
+    download_file "https://dl.google.com/release2/j0qc3/antigravity/stable/${pkgver}-${_build}/linux-arm/Antigravity%20IDE.tar.gz" "$IDE_ARCHIVE" || { rm -f "$IDE_ARCHIVE"; die "IDE: Download failed."; }
     ok "Downloaded $IDE_ARCHIVE"
   fi
 
   # Backup existing IDE files to allow rollback
   if [[ -d "$INSTALL_DIR" ]]; then
     info "Backing up existing IDE installation directory..."
-    IDE_DIR_BAK="${INSTALL_DIR}.bak.$$"
-    mv "$INSTALL_DIR" "$IDE_DIR_BAK"
+    local dir_bak="${INSTALL_DIR}.bak.$$"
+    mv "$INSTALL_DIR" "$dir_bak"
+    register_backup "$INSTALL_DIR" "$dir_bak"
   else
-    IDE_DIR_CREATED_FRESH=1
+    register_fresh "$INSTALL_DIR"
   fi
 
   local ide_bin="$INSTALL_BIN_DIR/antigravity-ide"
   if [[ -f "$ide_bin" || -L "$ide_bin" ]]; then
-    IDE_BIN_BAK="${ide_bin}.bak.$$"
-    mv "$ide_bin" "$IDE_BIN_BAK"
+    local bin_bak="${ide_bin}.bak.$$"
+    mv "$ide_bin" "$bin_bak"
+    register_backup "$ide_bin" "$bin_bak"
   else
-    IDE_BIN_CREATED_FRESH=1
+    register_fresh "$ide_bin"
   fi
-
-
 
   local ide_desktop="$APPLICATIONS_DIR/antigravity-ide.desktop"
   if [[ -f "$ide_desktop" ]]; then
-    IDE_DESKTOP_BAK="${ide_desktop}.bak.$$"
-    mv "$ide_desktop" "$IDE_DESKTOP_BAK"
+    local ds_bak="${ide_desktop}.bak.$$"
+    mv "$ide_desktop" "$ds_bak"
+    register_backup "$ide_desktop" "$ds_bak"
   else
-    IDE_DESKTOP_CREATED_FRESH=1
+    register_fresh "$ide_desktop"
   fi
 
   local ide_icon="$ICONS_DIR/antigravity-ide.png"
   if [[ -f "$ide_icon" ]]; then
-    IDE_ICON_BAK="${ide_icon}.bak.$$"
-    mv "$ide_icon" "$IDE_ICON_BAK"
+    local icon_bak="${ide_icon}.bak.$$"
+    mv "$ide_icon" "$icon_bak"
+    register_backup "$ide_icon" "$icon_bak"
   else
-    IDE_ICON_CREATED_FRESH=1
-  fi
-
-  local ide_lib_so="$LIB_DIR/libmmap_va39_fix.so"
-  if [[ -f "$ide_lib_so" ]]; then
-    IDE_LIB_SO_BAK="${ide_lib_so}.bak.$$"
-    mv "$ide_lib_so" "$IDE_LIB_SO_BAK"
-  else
-    IDE_LIB_SO_CREATED_FRESH=1
+    register_fresh "$ide_icon"
   fi
 
   mkdir -p "$INSTALL_BIN_DIR" "$APPLICATIONS_DIR" "$ICONS_DIR" "$LIB_DIR"
-  tar -xf "$IDE_ARCHIVE" -C "$HOME/.local/share/"
+  extract_tar "$IDE_ARCHIVE" "$HOME/.local/share/"
 
   # ── Adjust Electron startup ──
   local IDE_SCRIPT="$INSTALL_DIR/bin/antigravity-ide"
   [[ -f "$IDE_SCRIPT" ]] || die "IDE: Entrypoint wrapper not found in archive."
   sed -i 's|ELECTRON_RUN_AS_NODE=1 "$ELECTRON" "$CLI" "$@"|ELECTRON_RUN_AS_NODE=1 "$ELECTRON" "$CLI" --no-sandbox "$@"|g' "$IDE_SCRIPT"
   chmod +x "$IDE_SCRIPT"
-
-
 
   # ── Interposer ──
   cp "${BUILD_DIR}/libmmap_va39_fix.so" "$LIB_DIR/libmmap_va39_fix.so"
@@ -1119,22 +955,19 @@ install_ide() {
     info "Patching IDE language server..."
     mv "$LS_PATH" "${LS_PATH}.va39"
     python3 "${BUILD_DIR}/va39_patch.py" "${LS_PATH}.va39" "${LS_PATH}.va39"
-    "$local_cc" -O2 -DPATCHED_BIN_NAME='"language_server_linux_arm.va39"' -o "$LS_PATH" "${BUILD_DIR}/generic_helper.c"
-    chmod 755 "$LS_PATH" "${LS_PATH}.va39"
+    create_bash_wrapper "$LS_PATH" "language_server_linux_arm.va39"
+    chmod 755 "${LS_PATH}.va39"
   else
     die "IDE: Language server not found at $LS_PATH."
   fi
 
   # ── Wrap main IDE binary ──
-  # The Electron binary needs the glibc dynamic linker, which on Termux lives at
-  # a non-standard path. Without this wrapper the kernel can't find the ELF
-  # interpreter and reports "not found".
   local IDE_BIN="$INSTALL_DIR/antigravity-ide"
   if [[ -f "$IDE_BIN" ]]; then
     info "Wrapping main IDE binary..."
     mv "$IDE_BIN" "${IDE_BIN}.va39"
-    "$local_cc" -O2 -DPATCHED_BIN_NAME='"antigravity-ide.va39"' -o "$IDE_BIN" "${BUILD_DIR}/generic_helper.c"
-    chmod 755 "$IDE_BIN" "${IDE_BIN}.va39"
+    create_bash_wrapper "$IDE_BIN" "antigravity-ide.va39"
+    chmod 755 "${IDE_BIN}.va39"
   else
     die "IDE: Main binary not found."
   fi
