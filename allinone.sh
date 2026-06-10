@@ -125,7 +125,6 @@ IDE_DESKTOP_CREATED_FRESH=0
 IDE_ICON_BAK=""
 IDE_ICON_CREATED_FRESH=0
 
-
 cleanup() {
   printf "\033[?25h"
   # Clean up temporary files / build dir
@@ -196,8 +195,6 @@ cleanup() {
       rm -f "$ide_bin"
     fi
 
-
-
     if [[ -n "$IDE_DESKTOP_BAK" && -f "$IDE_DESKTOP_BAK" ]]; then
       rm -f "$ide_desktop"
       mv "$IDE_DESKTOP_BAK" "$ide_desktop"
@@ -236,13 +233,13 @@ TMP_LOGO="${BUILD_DIR}/logo.ans"
 base64 -d << 'EOF' > "$TMP_LOGO"
 G1s/MjVsG1swbSAgICAgICAgICAgICAgICAgICAgICAgIBtbMG0KICAgICAgICAgICAgICAgICAg
 ICAgICAgG1swbQogICAgICAgICAbWzM4OzI7MTU0OzE1OTs1M23iloQbWzM4OzI7MTg5OzE3MTs2
-NTs0ODsyOzE4NjsxNDM7MzZt4paEG1szODsyOzE5ODsxNDY7Njg7NDg7MjsyMjg7MTQzOzQ2beKW
-hBtbMzg7MjsyMTI7MTIwOzcwOzQ4OzI7MjM0OzExMzs1M23iloQbWzM4OzI7MjI3Ozk3OzY4OzQ4
-OzI7MTk4Ozc1OzQ4beKWhBtbMG0bWzM4OzI7MTk1OzY3OzU0beKWhBtbMG0gICAgICAgICAbWzBt
+NTs0ODsyOzE4NjsxNDM7MzZt4paEG1szODsyOzk4OzE0Njs2ODs0ODsyOzIyODsxNDM7NDZt4paE
+G1szODsyOzIxMjsxMjA7NzA7NDg7MjsyMzQ7MTEzOzUzbeKWhBtbMzg7MjsyMjc7OTc7Njg7NDg7
+MjsxOTg7NzU7NDhtbeKWhBtbMG0bWzM4OzI7MTk1OzY3OzU0beKWhBtbMG0gICAgICAgICAbWzBt
 CiAgICAgICAgG1szODsyOzEwNjsxNjE7ODdt4paEG1szODsyOzExMzsxNzg7MTE2OzQ4OzI7MTQ4
-OzE4NTs4OG3iloQbWzM4OzI7MTA5OzE2NDsxMzA7NDg7MjsxNDg7MTY4Ozk1beKWhBtbMzg7Mjsx
+OzE4NTs4OG3iloQbWzM4OzI7MTA5OzE4NDsxMzA7NDg7MjsxNDg7MTY4Ozk1beKWhBtbMzg7Mjsx
 MTg7MTQ3OzEzNzs0ODsyOzE1OTsxNDg7OTlt4paEG1szODsyOzE0MDsxMzA7MTM1OzQ4OzI7MTgw
-OzEyNjs5N23iloQbWzM4OzI7MTY4OzExMjsxMjI7NDg7MjsyMDI7MTA1Ozg5beKWhBtbMzg7Mjsx
+OzEyNjs5N7eKWhBtbMzg7MjsxNjg7MTEyOzEyMjs0ODsyOzIwMjsxMDU7ODlt4paEG1szODsyOzE
 OTY7OTY7MTA2OzQ4OzI7MjIzOzg3Ozc5beKWhBtbMG0bWzM4OzI7MTc2OzY4Ozc0beKWhBtbMG0g
 ICAgICAgIBtbMG0KICAgICAgIBtbMzg7Mjs0NTs5MTs2OW3iloQbWzM4OzI7Nzc7MTcxOzE1NTs0
 ODsyOzEwMDsxODI7MTI2beKWhBtbMzg7Mjs2NTsxNTk7MTgwOzQ4OzI7ODQ7MTY5OzE0OG3iloQb
@@ -251,32 +248,32 @@ Mjs4NDsxNDQ7MTc3beKWhBtbMzg7Mjs3NTsxMzM7MjEwOzQ4OzI7MTAyOzEzMjsxNzVt4paEG1sz
 ODsyOzk4OzEyNjsyMDA7NDg7MjsxMzA7MTE5OzE2M23iloQbWzM4OzI7MTI3OzExNjsxODI7NDg7
 MjsxNjI7MTA2OzE0M23iloQbWzM4OzI7MTU3OzEwNzsxNTk7NDg7MjsxOTE7OTQ7MTIxbeKWhBtb
 MG0gICAgICAgIBtbMG0KICAgICAgIBtbMzg7Mjs1ODsxNTg7MTg0OzQ4OzI7NTc7MTM0OzEyOG3i
-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
+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
-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
+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
-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
+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
-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
+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
-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
+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
-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
+IBtbN20bWzM4OzI7NTE7MTMyOzI1MW3iloQbWzBtG1szODsyOzQ3OzEyNTsyMzg7NDg7Mjs5MTsx
 MjY7MjM4beKWhBtbMG0bWzM4OzI7NDE7MTA5OzIwN23iloQbWzBtICAgG1swbQogICAgICAgICAg
-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
+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
 EOF
 
 COLS=$(tput cols </dev/tty 2>/dev/null || echo 60)
@@ -347,7 +344,7 @@ else
   done
 fi
 
-# Build summary
+# Build selection list
 SELECTED_NAMES=()
 [[ $INSTALL_CLI -eq 1 ]] && SELECTED_NAMES+=("CLI")
 [[ $INSTALL_IDE -eq 1 ]] && SELECTED_NAMES+=("IDE")
@@ -357,7 +354,101 @@ printf '\n'
 ok "Selected: ${B}${SELECTED_NAMES[*]}${N}"
 sep
 
-# ── Compiler Detection ────────────────────────────────────────────────────────
+# ── Interactive Prompts & Confirmations Upfront ───────────────────────────────
+RUN_CLI_INSTALL=0
+RUN_CLI_UNPATCHED=0
+RUN_DESKTOP_INSTALL=0
+RUN_IDE_INSTALL=0
+
+[[ $INSTALL_CLI -eq 1 ]] && RUN_CLI_INSTALL=1
+[[ $INSTALL_DESKTOP -eq 1 ]] && RUN_DESKTOP_INSTALL=1
+[[ $INSTALL_IDE -eq 1 ]] && RUN_IDE_INSTALL=1
+
+# 1. CLI Confirmations
+if [[ $INSTALL_CLI -eq 1 ]]; then
+  if [[ -f "$INSTALL_BIN_DIR/agy" ]]; then
+    warn "An existing installation of Antigravity CLI was detected at $INSTALL_BIN_DIR/agy."
+    info "Reinstalling will update the application binary. Your user data (configurations, logs, and databases in ~/.gemini/ and other directories) will NOT be lost or affected."
+    printf '  Proceed with reinstalling/updating CLI? [Y/n]: '
+    run_ans=""
+    read -r run_ans < /dev/tty || run_ans="y"
+    if [[ ! "$run_ans" =~ ^[Yy]$ && -n "$run_ans" ]]; then
+      info "Skipping CLI installation in this script."
+      RUN_CLI_INSTALL=0
+    fi
+  fi
+
+  if [[ $RUN_CLI_INSTALL -eq 1 ]]; then
+    printf '\n  %b\n' "${B}Antigravity CLI Installation Options:${N}"
+    printf '  - %bY%b: Continue CLI installation using this script but WITHOUT patching/wrapping.%b\n' "${G}" "${N}" "${N}"
+    printf '  - %bN%b: Skip CLI installation in this script (e.g. to copy the official command and run it manually in another session: %bcurl -fsSL https://antigravity.google/cli/install.sh | bash%b).%b\n' "${R}" "${N}" "${C}" "${N}" "${N}"
+    printf '  Continue with unpatched installation in this script? [Y/n]: '
+    opt_ans=""
+    read -r opt_ans < /dev/tty || opt_ans="y"
+    if [[ ! "$opt_ans" =~ ^[Yy]$ && -n "$opt_ans" ]]; then
+      info "Skipping CLI installation in this script."
+      info "You can copy and run this command in a different terminal session:"
+      printf '  %bcurl -fsSL https://antigravity.google/cli/install.sh | bash%b\n\n' "${C}" "${N}"
+      RUN_CLI_INSTALL=0
+    else
+      RUN_CLI_UNPATCHED=1
+    fi
+  fi
+fi
+
+# 2. Desktop Confirmations
+if [[ $INSTALL_DESKTOP -eq 1 ]]; then
+  desktop_target_dir="$HOME/.local/share/Antigravity-arm64"
+  if [[ -d "$desktop_target_dir" ]]; then
+    warn "An existing installation of Antigravity Desktop was detected at $desktop_target_dir."
+    info "Reinstalling will update the application files. Your user data, configurations, and application state (stored outside the installation directory) will NOT be lost or affected."
+    printf '  Proceed with reinstalling/updating Desktop? [Y/n]: '
+    run_ans=""
+    read -r run_ans < /dev/tty || run_ans="y"
+    if [[ ! "$run_ans" =~ ^[Yy]$ && -n "$run_ans" ]]; then
+      info "Skipping Desktop installation."
+      RUN_DESKTOP_INSTALL=0
+    fi
+  fi
+fi
+
+# 3. IDE Confirmations
+if [[ $INSTALL_IDE -eq 1 ]]; then
+  ide_target_dir="$HOME/.local/share/Antigravity IDE"
+  if [[ -d "$ide_target_dir" ]]; then
+    warn "An existing installation of Antigravity IDE was detected at $ide_target_dir."
+    info "Reinstalling will update the application files. Your custom extensions, settings, and workspace data (stored outside the installation directory) will NOT be lost or affected."
+    printf '  Proceed with reinstalling/updating IDE? [Y/n]: '
+    run_ans=""
+    read -r run_ans < /dev/tty || run_ans="y"
+    if [[ ! "$run_ans" =~ ^[Yy]$ && -n "$run_ans" ]]; then
+      info "Skipping IDE installation."
+      RUN_IDE_INSTALL=0
+    fi
+  fi
+fi
+
+# Exit early if nothing remains to install
+if [[ $RUN_CLI_INSTALL -eq 0 && $RUN_DESKTOP_INSTALL -eq 0 && $RUN_IDE_INSTALL -eq 0 ]]; then
+  echo ""
+  sep
+  printf '  %b\n' "${Y}No installations were attempted.${N}"
+  sep
+  ALL_SUCCESS=1
+  exit 0
+fi
+
+# 4. Total Disk Space Check Upfront
+total_required_kb=0
+[[ $RUN_CLI_INSTALL -eq 1 ]] && total_required_kb=$((total_required_kb + 51200))
+[[ $RUN_DESKTOP_INSTALL -eq 1 ]] && total_required_kb=$((total_required_kb + 307200))
+[[ $RUN_IDE_INSTALL -eq 1 ]] && total_required_kb=$((total_required_kb + 819200))
+
+if [[ $total_required_kb -gt 0 ]]; then
+  check_disk_space "$HOME/.local" "$total_required_kb"
+fi
+
+# ── Prerequisite Checks & Package Manager Prompts Upfront ─────────────────────
 detect_compiler() {
   if [[ -x "/data/data/com.termux/files/usr/bin/clang" ]]; then
     echo "/data/data/com.termux/files/usr/bin/clang"
@@ -381,12 +472,11 @@ check_glibc() {
   fi
 }
 
-# ── Determine what needs downloading ──────────────────────────────────────────
+# Determine what needs downloading
 NEED_DOWNLOAD=0
 CLI_UPSTREAM_BIN=""
 
-# CLI: check for local binary
-if [[ $INSTALL_CLI -eq 1 ]]; then
+if [[ $RUN_CLI_INSTALL -eq 1 ]]; then
   if [[ -f "./antigravity" ]]; then
     CLI_UPSTREAM_BIN="./antigravity"
   elif [[ -f "./agy" ]]; then
@@ -396,41 +486,37 @@ if [[ $INSTALL_CLI -eq 1 ]]; then
   fi
 fi
 
-# Desktop: check for local archive
 DESKTOP_ARCHIVE_NAME="Antigravity.tar.gz"
 if [[ -f "$DESKTOP_ARCHIVE_NAME" ]]; then
   info "Using local archive: $DESKTOP_ARCHIVE_NAME"
   DESKTOP_ARCHIVE="$(pwd)/$DESKTOP_ARCHIVE_NAME"
 else
-  if [[ $INSTALL_DESKTOP -eq 1 ]]; then
+  if [[ $RUN_DESKTOP_INSTALL -eq 1 ]]; then
     NEED_DOWNLOAD=1
   fi
   DESKTOP_ARCHIVE="${BUILD_DIR}/$DESKTOP_ARCHIVE_NAME"
 fi
 
-# IDE: check for local archive
 IDE_ARCHIVE_NAME="Antigravity IDE.tar.gz"
 if [[ -f "$IDE_ARCHIVE_NAME" ]]; then
   info "Using local archive: $IDE_ARCHIVE_NAME"
   IDE_ARCHIVE="$(pwd)/$IDE_ARCHIVE_NAME"
 else
-  if [[ $INSTALL_IDE -eq 1 ]]; then
+  if [[ $RUN_IDE_INSTALL -eq 1 ]]; then
     NEED_DOWNLOAD=1
   fi
   IDE_ARCHIVE="${BUILD_DIR}/$IDE_ARCHIVE_NAME"
 fi
 
-# ── Prerequisite Check & Install ──────────────────────────────────────────────
 check_and_install_dependencies() {
   while true; do
     local missing=()
     local tools=(python3 tar)
 
-    # curl is needed for any download; CLI also needs jq
     if [[ $NEED_DOWNLOAD -eq 1 ]]; then
       tools+=(curl)
     fi
-    if [[ $INSTALL_CLI -eq 1 && -z "$CLI_UPSTREAM_BIN" ]]; then
+    if [[ $RUN_CLI_INSTALL -eq 1 && -z "$CLI_UPSTREAM_BIN" ]]; then
       tools+=(jq)
     fi
 
@@ -532,100 +618,6 @@ info "Checking system requirements..."
 check_and_install_dependencies
 local_cc=$(detect_compiler)
 info "Selected compiler: $local_cc"
-
-# ── Initial Prompts & Settings Setup ──────────────────────────────────────────
-RUN_CLI_INSTALL=0
-RUN_CLI_UNPATCHED=0
-RUN_DESKTOP_INSTALL=0
-RUN_IDE_INSTALL=0
-
-[[ $INSTALL_CLI -eq 1 ]] && RUN_CLI_INSTALL=1
-[[ $INSTALL_DESKTOP -eq 1 ]] && RUN_DESKTOP_INSTALL=1
-[[ $INSTALL_IDE -eq 1 ]] && RUN_IDE_INSTALL=1
-
-# 1. CLI confirmations
-if [[ $INSTALL_CLI -eq 1 ]]; then
-  if [[ -f "$INSTALL_BIN_DIR/agy" ]]; then
-    warn "An existing installation of Antigravity CLI was detected at $INSTALL_BIN_DIR/agy."
-    info "Reinstalling will update the application binary. Your user data (configurations, logs, and databases in ~/.gemini/ and other directories) will NOT be lost or affected."
-    printf '  Proceed with reinstalling/updating CLI? [Y/n]: '
-    local run_ans=""
-    read -r run_ans < /dev/tty || run_ans="y"
-    if [[ ! "$run_ans" =~ ^[Yy]$ && -n "$run_ans" ]]; then
-      info "Skipping CLI installation in this script."
-      RUN_CLI_INSTALL=0
-    fi
-  fi
-
-  if [[ $RUN_CLI_INSTALL -eq 1 ]]; then
-    printf '\n  %b\n' "${B}Antigravity CLI Installation Options:${N}"
-    printf '  - %bY%b: Continue CLI installation using this script but WITHOUT patching/wrapping.%b\n' "${G}" "${N}" "${N}"
-    printf '  - %bN%b: Skip CLI installation in this script (e.g. to copy the official command and run it manually in another session: %bcurl -fsSL https://antigravity.google/cli/install.sh | bash%b).%b\n' "${R}" "${N}" "${C}" "${N}" "${N}"
-    printf '  Continue with unpatched installation in this script? [Y/n]: '
-    local opt_ans=""
-    read -r opt_ans < /dev/tty || opt_ans="y"
-    if [[ ! "$opt_ans" =~ ^[Yy]$ && -n "$opt_ans" ]]; then
-      info "Skipping CLI installation in this script."
-      info "You can copy and run this command in a different terminal session:"
-      printf '  %bcurl -fsSL https://antigravity.google/cli/install.sh | bash%b\n\n' "${C}" "${N}"
-      RUN_CLI_INSTALL=0
-    else
-      RUN_CLI_UNPATCHED=1
-    fi
-  fi
-fi
-
-# 2. Desktop confirmations
-if [[ $INSTALL_DESKTOP -eq 1 ]]; then
-  local desktop_target_dir="$HOME/.local/share/Antigravity-arm64"
-  if [[ -d "$desktop_target_dir" ]]; then
-    warn "An existing installation of Antigravity Desktop was detected at $desktop_target_dir."
-    info "Reinstalling will update the application files. Your user data, configurations, and application state (stored outside the installation directory) will NOT be lost or affected."
-    printf '  Proceed with reinstalling/updating Desktop? [Y/n]: '
-    local run_ans=""
-    read -r run_ans < /dev/tty || run_ans="y"
-    if [[ ! "$run_ans" =~ ^[Yy]$ && -n "$run_ans" ]]; then
-      info "Skipping Desktop installation."
-      RUN_DESKTOP_INSTALL=0
-    fi
-  fi
-fi
-
-# 3. IDE confirmations
-if [[ $INSTALL_IDE -eq 1 ]]; then
-  local ide_target_dir="$HOME/.local/share/Antigravity IDE"
-  if [[ -d "$ide_target_dir" ]]; then
-    warn "An existing installation of Antigravity IDE was detected at $ide_target_dir."
-    info "Reinstalling will update the application files. Your custom extensions, settings, and workspace data (stored outside the installation directory) will NOT be lost or affected."
-    printf '  Proceed with reinstalling/updating IDE? [Y/n]: '
-    local run_ans=""
-    read -r run_ans < /dev/tty || run_ans="y"
-    if [[ ! "$run_ans" =~ ^[Yy]$ && -n "$run_ans" ]]; then
-      info "Skipping IDE installation."
-      RUN_IDE_INSTALL=0
-    fi
-  fi
-fi
-
-# 4. Total Disk Space Check upfront based on confirmed installations
-local total_required_kb=0
-[[ $RUN_CLI_INSTALL -eq 1 ]] && total_required_kb=$((total_required_kb + 51200))
-[[ $RUN_DESKTOP_INSTALL -eq 1 ]] && total_required_kb=$((total_required_kb + 307200))
-[[ $RUN_IDE_INSTALL -eq 1 ]] && total_required_kb=$((total_required_kb + 819200))
-
-if [[ $total_required_kb -gt 0 ]]; then
-  check_disk_space "$HOME/.local" "$total_required_kb"
-fi
-
-# If no installations are to be performed, exit early
-if [[ $RUN_CLI_INSTALL -eq 0 && $RUN_DESKTOP_INSTALL -eq 0 && $RUN_IDE_INSTALL -eq 0 ]]; then
-  echo ""
-  sep
-  printf '  %b\n' "${Y}No installations were attempted.${N}"
-  sep
-  ALL_SUCCESS=1
-  exit 0
-fi
 
 # ── Shared: VA39 Python Patcher ───────────────────────────────────────────────
 cat << 'PYEOF' > "${BUILD_DIR}/va39_patch.py"
@@ -806,11 +798,21 @@ void* mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 }
 EOF
 
-if [[ $RUN_DESKTOP_INSTALL -eq 1 || $RUN_IDE_INSTALL -eq 1 ]]; then
-  # Compile shared interposer .so once
-  info "Compiling mmap compatibility layer..."
-  "$local_cc" -O2 -fPIC -shared -o "${BUILD_DIR}/libmmap_va39_fix.so" "${BUILD_DIR}/mmap_va39_fix.c" -ldl
-fi
+# Global AUR Version Cache
+AUR_PKGVER=""
+AUR_BUILD=""
+fetch_aur_version() {
+  if [[ -z "$AUR_PKGVER" || -z "$AUR_BUILD" ]]; then
+    info "Fetching latest version details from Arch Linux AUR..."
+    local pkgbuild
+    pkgbuild=$(download_file "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=antigravity" "" || echo "")
+    [[ -z "$pkgbuild" ]] && die "Failed to retrieve AUR PKGBUILD."
+    AUR_PKGVER=$(echo "$pkgbuild" | grep -E "^pkgver=" | cut -d= -f2 | xargs)
+    AUR_BUILD=$(echo "$pkgbuild" | grep -E "^_build=" | cut -d= -f2 | xargs)
+    [[ -z "$AUR_PKGVER" || -z "$AUR_BUILD" ]] && die "Failed to parse pkgver/_build from AUR PKGBUILD."
+    info "Latest AUR package version: v${AUR_PKGVER}-${AUR_BUILD}"
+  fi
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  INSTALL: CLI
@@ -818,7 +820,7 @@ fi
 install_cli() {
   echo ""
   sep
-  printf '  %b\n' "${B}${C}${TASK_PROGRESS} Antigravity CLI${N}"
+  printf '  %b\n' "${B}${C}Installing ${TASK_PROGRESS}: Antigravity CLI${N}"
   sep
 
   # Reset CLI backups
@@ -835,7 +837,7 @@ install_cli() {
       mv -f "$INSTALL_BIN_DIR/agy" "$CLI_AGY_BAK"
     fi
 
-    info "Querying latest CLI version from Google..."
+    info "Querying latest CLI version..."
     MANIFEST_URL="https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_arm64.json"
     manifest=$(download_file "$MANIFEST_URL" "" || echo "")
     [[ -z "$manifest" ]] && die "CLI: Failed to query manifest from $MANIFEST_URL"
@@ -885,7 +887,7 @@ install_cli() {
 install_desktop() {
   echo ""
   sep
-  printf '  %b\n' "${B}${C}${TASK_PROGRESS} Antigravity 2.0 Desktop${N}"
+  printf '  %b\n' "${B}${C}Installing ${TASK_PROGRESS}: Antigravity 2.0 Desktop${N}"
   sep
 
   local TARGET_DIR="$HOME/.local/share/Antigravity-arm64"
@@ -940,16 +942,9 @@ install_desktop() {
 
     # Download if needed
     if [[ ! -f "$DESKTOP_ARCHIVE" ]]; then
-      info "Fetching latest Desktop release from Arch Linux AUR..."
-      local pkgbuild pkgver _build
-      pkgbuild=$(download_file "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=antigravity" "" || echo "")
-      [[ -z "$pkgbuild" ]] && die "Desktop: Failed to retrieve AUR PKGBUILD."
-      pkgver=$(echo "$pkgbuild" | grep -E "^pkgver=" | cut -d= -f2 | xargs)
-      _build=$(echo "$pkgbuild" | grep -E "^_build=" | cut -d= -f2 | xargs)
-      [[ -z "$pkgver" || -z "$_build" ]] && die "Desktop: Failed to parse pkgver/_build."
-      info "Latest: v${pkgver}-${_build}"
+      fetch_aur_version
       info "Downloading $DESKTOP_ARCHIVE..."
-      download_file "https://storage.googleapis.com/antigravity-public/antigravity-hub/${pkgver}-${_build}/linux-arm/Antigravity.tar.gz" "$DESKTOP_ARCHIVE" || { rm -f "$DESKTOP_ARCHIVE"; die "Desktop: Download failed."; }
+      download_file "https://storage.googleapis.com/antigravity-public/antigravity-hub/${AUR_PKGVER}-${AUR_BUILD}/linux-arm/Antigravity.tar.gz" "$DESKTOP_ARCHIVE" || { rm -f "$DESKTOP_ARCHIVE"; die "Desktop: Download failed."; }
       ok "Downloaded $DESKTOP_ARCHIVE"
     fi
 
@@ -1120,20 +1115,15 @@ DEOF
 install_ide() {
   echo ""
   sep
-  printf '  %b\n' "${B}${C}${TASK_PROGRESS} Antigravity IDE${N}"
+  printf '  %b\n' "${B}${C}Installing ${TASK_PROGRESS}: Antigravity IDE${N}"
   sep
 
-  local INSTALL_DIR="$HOME/.local/share/Antigravity IDE"
+  local TARGET_DIR="$HOME/.local/share/Antigravity IDE"
   local APPLICATIONS_DIR="$HOME/.local/share/applications"
   local ICONS_DIR="$HOME/.local/share/icons"
-  local LIB_DIR="$INSTALL_DIR"
-  local LS_DIR="$INSTALL_DIR/resources/app/extensions/antigravity/bin"
-  local LS_BIN="language_server_linux_arm"
-  local LS_PATH="$LS_DIR/$LS_BIN"
-
-  local ide_bin="$INSTALL_BIN_DIR/antigravity-ide"
-  local ide_desktop="$APPLICATIONS_DIR/antigravity-ide.desktop"
-  local ide_icon="$ICONS_DIR/antigravity-ide.png"
+  local WRAPPER="$INSTALL_BIN_DIR/antigravity-ide"
+  local DESKTOP_FILE="$APPLICATIONS_DIR/antigravity-ide.desktop"
+  local ICON_DST="$ICONS_DIR/antigravity-ide.png"
 
   # Reset global flags
   IDE_DIR_BAK=""
@@ -1145,57 +1135,123 @@ install_ide() {
   IDE_ICON_BAK=""
   IDE_ICON_CREATED_FRESH=0
 
-  if [[ -d "$INSTALL_DIR" ]]; then
-    IDE_DIR_BAK="${INSTALL_DIR}.bak.$$"
+  if [[ -d "$TARGET_DIR" ]]; then
+    IDE_DIR_BAK="${TARGET_DIR}.bak.$$"
   else
     IDE_DIR_CREATED_FRESH=1
   fi
 
-  if [[ -f "$ide_bin" || -L "$ide_bin" ]]; then
-    IDE_BIN_BAK="${ide_bin}.bak.$$"
+  if [[ -f "$WRAPPER" || -L "$WRAPPER" ]]; then
+    IDE_BIN_BAK="${WRAPPER}.bak.$$"
   else
     IDE_BIN_CREATED_FRESH=1
   fi
 
-  if [[ -f "$ide_desktop" ]]; then
-    IDE_DESKTOP_BAK="${ide_desktop}.bak.$$"
+  if [[ -f "$DESKTOP_FILE" ]]; then
+    IDE_DESKTOP_BAK="${DESKTOP_FILE}.bak.$$"
   else
     IDE_DESKTOP_CREATED_FRESH=1
   fi
 
-  if [[ -f "$ide_icon" ]]; then
-    IDE_ICON_BAK="${ide_icon}.bak.$$"
+  if [[ -f "$ICON_DST" ]]; then
+    IDE_ICON_BAK="${ICON_DST}.bak.$$"
   else
     IDE_ICON_CREATED_FRESH=1
   fi
 
-  # The Electron binary needs the glibc dynamic linker, which on Termux lives at
-  # a non-standard path. Without this wrapper the kernel can't find the ELF
-  # interpreter and reports "not found".
-  local IDE_BIN="$INSTALL_DIR/antigravity-ide"
-  if [[ -f "$IDE_BIN" ]]; then
-    info "Wrapping main IDE binary..."
-    mv "$IDE_BIN" "${IDE_BIN}.va39"
-    "$local_cc" -O2 -DPATCHED_BIN_NAME='"antigravity-ide.va39"' -o "$IDE_BIN" "${BUILD_DIR}/generic_helper.c"
-    chmod 755 "$IDE_BIN" "${IDE_BIN}.va39"
-  else
-    die "IDE: Main binary not found."
-  fi
+  if ! (
+    trap - EXIT
+    set -e
 
-  # ── System shortcuts ──
-  ln -sf "$IDE_SCRIPT" "$INSTALL_BIN_DIR/antigravity-ide"
+    # Perform backups
+    [[ -n "$IDE_DIR_BAK" ]] && mv "$TARGET_DIR" "$IDE_DIR_BAK"
+    [[ -n "$IDE_BIN_BAK" ]] && mv "$WRAPPER" "$IDE_BIN_BAK"
+    [[ -n "$IDE_DESKTOP_BAK" ]] && mv "$DESKTOP_FILE" "$IDE_DESKTOP_BAK"
+    [[ -n "$IDE_ICON_BAK" ]] && mv "$ICON_DST" "$IDE_ICON_BAK"
 
-  local ICON_SOURCE="$INSTALL_DIR/resources/app/resources/linux/code.png"
-  local ICON_DEST="$ICONS_DIR/antigravity-ide.png"
-  [[ -f "$ICON_SOURCE" ]] && cp -f "$ICON_SOURCE" "$ICON_DEST"
+    # Download if needed
+    if [[ ! -f "$IDE_ARCHIVE" ]]; then
+      fetch_aur_version
+      info "Downloading $IDE_ARCHIVE..."
+      download_file "https://storage.googleapis.com/antigravity-public/antigravity-hub/${AUR_PKGVER}-${AUR_BUILD}/linux-arm/Antigravity%20IDE.tar.gz" "$IDE_ARCHIVE" || { rm -f "$IDE_ARCHIVE"; die "IDE: Download failed."; }
+      ok "Downloaded $IDE_ARCHIVE"
+    fi
 
-  local DESKTOP_FILE="$APPLICATIONS_DIR/antigravity-ide.desktop"
-  cat > "$DESKTOP_FILE" << IEOF
+    # Extract
+    info "Extracting $IDE_ARCHIVE..."
+    extract_tar "$IDE_ARCHIVE" "${BUILD_DIR}/ide_extract"
+
+    local SRC_DIR=""
+    if [[ -d "${BUILD_DIR}/ide_extract/Antigravity IDE-arm64" ]]; then
+      SRC_DIR="${BUILD_DIR}/ide_extract/Antigravity IDE-arm64"
+    elif [[ -d "${BUILD_DIR}/ide_extract/Antigravity IDE" ]]; then
+      SRC_DIR="${BUILD_DIR}/ide_extract/Antigravity IDE"
+    else
+      SRC_DIR=$(find "${BUILD_DIR}/ide_extract" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+    fi
+    [[ -n "$SRC_DIR" && -d "$SRC_DIR" ]] || die "IDE: Extracted folder not found in archive."
+
+    mkdir -p "$(dirname "$TARGET_DIR")"
+    mv "$SRC_DIR" "$TARGET_DIR"
+
+    # Copy mmap compatibility library
+    cp "${BUILD_DIR}/libmmap_va39_fix.so" "$TARGET_DIR/libmmap_va39_fix.so"
+    chmod 755 "$TARGET_DIR/libmmap_va39_fix.so"
+
+    # Patch language server(s) if present
+    for ls_bin in language_server_linux_arm language_server; do
+      local ls_path="$TARGET_DIR/resources/app/extensions/antigravity/bin/$ls_bin"
+      if [[ -f "$ls_path" ]]; then
+        info "Patching $ls_bin..."
+        mv "$ls_path" "${ls_path}.va39"
+        python3 "${BUILD_DIR}/va39_patch.py" "${ls_path}.va39" "${ls_path}.va39"
+        "$local_cc" -O2 -DPATCHED_BIN_NAME="\"$ls_bin.va39\"" -o "$ls_path" "${BUILD_DIR}/generic_helper.c"
+        chmod 755 "$ls_path"
+      fi
+    done
+
+    # Wrap main IDE binary
+    local IDE_BIN="$TARGET_DIR/antigravity-ide"
+    if [[ -f "$IDE_BIN" ]]; then
+      info "Wrapping main IDE binary..."
+      mv "$IDE_BIN" "${IDE_BIN}.va39"
+      "$local_cc" -O2 -DPATCHED_BIN_NAME='"antigravity-ide.va39"' -o "$IDE_BIN" "${BUILD_DIR}/generic_helper.c"
+      chmod 755 "$IDE_BIN"
+    else
+      die "IDE: Main binary not found at $IDE_BIN."
+    fi
+
+    # Create launcher wrapper script at $WRAPPER
+    mkdir -p "$INSTALL_BIN_DIR"
+    cat > "$WRAPPER" << 'WEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+APP_DIR="$HOME/.local/share/Antigravity IDE"
+if [[ -f "/data/data/com.termux/files/usr/etc/tls/cert.pem" ]]; then
+    export SSL_CERT_FILE="/data/data/com.termux/files/usr/etc/tls/cert.pem"
+elif [[ -f "/etc/ssl/certs/ca-certificates.crt" ]]; then
+    export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
+fi
+export LIBGL_ALWAYS_SOFTWARE=1 ELECTRON_ENABLE_LOGGING=1
+exec "$APP_DIR/antigravity-ide" --no-sandbox "$@"
+WEOF
+    chmod +x "$WRAPPER"
+
+    # Copy Icon if available
+    mkdir -p "$ICONS_DIR"
+    local ICON_SOURCE="$TARGET_DIR/resources/app/resources/linux/code.png"
+    if [[ -f "$ICON_SOURCE" ]]; then
+      cp -f "$ICON_SOURCE" "$ICON_DST"
+    fi
+
+    # Create Desktop entry
+    mkdir -p "$APPLICATIONS_DIR"
+    cat > "$DESKTOP_FILE" << IEOF
 [Desktop Entry]
 Name=Antigravity IDE
 Comment=Antigravity IDE
-Exec="$INSTALL_BIN_DIR/antigravity-ide" --no-sandbox %F
-Icon=$ICON_DEST
+Exec="$WRAPPER" --no-sandbox %F
+Icon=$ICON_DST
 Type=Application
 StartupNotify=true
 Categories=Utility;TextEditor;Development;IDE;
@@ -1204,37 +1260,163 @@ Actions=new-empty-window;
 
 [Desktop Action new-empty-window]
 Name=New Empty Window
-Exec="$INSTALL_BIN_DIR/antigravity-ide" --no-sandbox --new-window %F
-Icon=$ICON_DEST
+Exec="$WRAPPER" --no-sandbox --new-window %F
+Icon=$ICON_DST
 IEOF
-  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPLICATIONS_DIR" 2>/dev/null || true
+    command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPLICATIONS_DIR" 2>/dev/null || true
+  ); then
+    # ROLLBACK:
+    if [[ -n "$IDE_DIR_BAK" && -d "$IDE_DIR_BAK" ]]; then
+      rm -rf "$TARGET_DIR"
+      mv "$IDE_DIR_BAK" "$TARGET_DIR"
+    elif [[ "$IDE_DIR_CREATED_FRESH" -eq 1 ]]; then
+      rm -rf "$TARGET_DIR"
+    fi
 
-  ok "IDE installed → ${D}antigravity-ide${N}"
+    if [[ -n "$IDE_BIN_BAK" && -f "$IDE_BIN_BAK" ]]; then
+      rm -f "$WRAPPER"
+      mv "$IDE_BIN_BAK" "$WRAPPER"
+    elif [[ "$IDE_BIN_CREATED_FRESH" -eq 1 ]]; then
+      rm -f "$WRAPPER"
+    fi
+
+    if [[ -n "$IDE_DESKTOP_BAK" && -f "$IDE_DESKTOP_BAK" ]]; then
+      rm -f "$DESKTOP_FILE"
+      mv "$IDE_DESKTOP_BAK" "$DESKTOP_FILE"
+    elif [[ "$IDE_DESKTOP_CREATED_FRESH" -eq 1 ]]; then
+      rm -f "$DESKTOP_FILE"
+    fi
+
+    if [[ -n "$IDE_ICON_BAK" && -f "$IDE_ICON_BAK" ]]; then
+      rm -f "$ICON_DST"
+      mv "$IDE_ICON_BAK" "$ICON_DST"
+    elif [[ "$IDE_ICON_CREATED_FRESH" -eq 1 ]]; then
+      rm -f "$ICON_DST"
+    fi
+
+    # Reset variables
+    IDE_DIR_BAK=""
+    IDE_DIR_CREATED_FRESH=0
+    IDE_BIN_BAK=""
+    IDE_BIN_CREATED_FRESH=0
+    IDE_DESKTOP_BAK=""
+    IDE_DESKTOP_CREATED_FRESH=0
+    IDE_ICON_BAK=""
+    IDE_ICON_CREATED_FRESH=0
+
+    warn "IDE installation failed."
+    IDE_INSTALL_STATUS="failed"
+    return 1
+  else
+    # SUCCESS: clean backups
+    [[ -n "$IDE_DIR_BAK" && -d "$IDE_DIR_BAK" ]] && rm -rf "$IDE_DIR_BAK"
+    [[ -n "$IDE_BIN_BAK" && -f "$IDE_BIN_BAK" ]] && rm -f "$IDE_BIN_BAK"
+    [[ -n "$IDE_DESKTOP_BAK" && -f "$IDE_DESKTOP_BAK" ]] && rm -f "$IDE_DESKTOP_BAK"
+    [[ -n "$IDE_ICON_BAK" && -f "$IDE_ICON_BAK" ]] && rm -f "$IDE_ICON_BAK"
+
+    # Reset variables
+    IDE_DIR_BAK=""
+    IDE_DIR_CREATED_FRESH=0
+    IDE_BIN_BAK=""
+    IDE_BIN_CREATED_FRESH=0
+    IDE_DESKTOP_BAK=""
+    IDE_DESKTOP_CREATED_FRESH=0
+    IDE_ICON_BAK=""
+    IDE_ICON_CREATED_FRESH=0
+
+    ok "IDE installed successfully → ${D}antigravity-ide${N}"
+    IDE_INSTALL_STATUS="success"
+    return 0
+  fi
 }
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  Execute Selected Installations
-# ══════════════════════════════════════════════════════════════════════════════
-[[ $INSTALL_CLI -eq 1 ]]     && install_cli
-[[ $INSTALL_DESKTOP -eq 1 ]] && install_desktop
-[[ $INSTALL_IDE -eq 1 ]]     && install_ide
+# ── Queue selected installs and run in strict order ───────────────────────────
+QUEUE=()
+[[ $RUN_CLI_INSTALL -eq 1 ]]     && QUEUE+=("cli")
+[[ $RUN_IDE_INSTALL -eq 1 ]]     && QUEUE+=("ide")
+[[ $RUN_DESKTOP_INSTALL -eq 1 ]] && QUEUE+=("desktop")
+
+TOTAL_TASKS=${#QUEUE[@]}
+CURRENT_TASK=0
+
+# Compile shared compatibility layer if needed
+if [[ $RUN_DESKTOP_INSTALL -eq 1 || $RUN_IDE_INSTALL -eq 1 ]]; then
+  info "Compiling mmap compatibility layer..."
+  "$local_cc" -O2 -fPIC -shared -o "${BUILD_DIR}/libmmap_va39_fix.so" "${BUILD_DIR}/mmap_va39_fix.c" -ldl
+fi
+
+CLI_INSTALL_STATUS="skipped"
+IDE_INSTALL_STATUS="skipped"
+DESKTOP_INSTALL_STATUS="skipped"
+
+for task in "${QUEUE[@]}"; do
+  CURRENT_TASK=$((CURRENT_TASK + 1))
+  TASK_PROGRESS="${CURRENT_TASK}/${TOTAL_TASKS}"
+  case "$task" in
+    cli)
+      install_cli || true
+      ;;
+    ide)
+      install_ide || true
+      ;;
+    desktop)
+      install_desktop || true
+      ;;
+  esac
+done
 
 # ── Final Summary ─────────────────────────────────────────────────────────────
 ALL_SUCCESS=1
+if [[ "$CLI_INSTALL_STATUS" == "failed" || "$IDE_INSTALL_STATUS" == "failed" || "$DESKTOP_INSTALL_STATUS" == "failed" ]]; then
+  ALL_SUCCESS=0
+fi
+
 echo ""
 sep
-printf '  %b\n' "${G}${B}All done.${N} Installed: ${B}${SELECTED_NAMES[*]}${N}"
+if [[ $ALL_SUCCESS -eq 1 ]]; then
+  printf '  %b\n' "${G}${B}Installation completed successfully!${N}"
+else
+  printf '  %b\n' "${Y}${B}Installation completed with errors.${N}"
+fi
 
-case ":$PATH:" in
-  *":$INSTALL_BIN_DIR:"*) ;;
-  *)
-    printf '\n  %b\n' "${R}!${N} ${B}${INSTALL_BIN_DIR}${N} is not in your PATH."
-    printf '  %b\n' "${D}Add to ~/.bashrc:${N}  export PATH=\"${INSTALL_BIN_DIR}:\$PATH\""
-    ;;
-esac
+# Print status of each component
+if [[ $RUN_CLI_INSTALL -eq 1 ]]; then
+  if [[ "$CLI_INSTALL_STATUS" == "success" ]]; then
+    printf '  %b\n' "${G}✓${N} CLI: Installed successfully (${D}${INSTALL_BIN_DIR}/agy${N})"
+  else
+    printf '  %b\n' "${R}✗${N} CLI: Installation failed (reverted)"
+  fi
+fi
 
-echo ""
-[[ $INSTALL_CLI -eq 1 ]]     && printf '  %b\n' "${D}CLI:${N}     ${C}agy${N}"
-[[ $INSTALL_DESKTOP -eq 1 ]] && printf '  %b\n' "${D}Desktop:${N} ${C}antigravity${N}"
-[[ $INSTALL_IDE -eq 1 ]]     && printf '  %b\n' "${D}IDE:${N}     ${C}antigravity-ide${N}"
+if [[ $RUN_IDE_INSTALL -eq 1 ]]; then
+  if [[ "$IDE_INSTALL_STATUS" == "success" ]]; then
+    printf '  %b\n' "${G}✓${N} IDE: Installed successfully (${D}${INSTALL_BIN_DIR}/antigravity-ide${N})"
+  else
+    printf '  %b\n' "${R}✗${N} IDE: Installation failed (reverted)"
+  fi
+fi
+
+if [[ $RUN_DESKTOP_INSTALL -eq 1 ]]; then
+  if [[ "$DESKTOP_INSTALL_STATUS" == "success" ]]; then
+    printf '  %b\n' "${G}✓${N} Desktop: Installed successfully (${D}${INSTALL_BIN_DIR}/antigravity${N})"
+  else
+    printf '  %b\n' "${R}✗${N} Desktop: Installation failed (reverted)"
+  fi
+fi
+
+# Add PATH advice if anything succeeded
+ANY_SUCCESS=0
+[[ "$CLI_INSTALL_STATUS" == "success" ]] && ANY_SUCCESS=1
+[[ "$IDE_INSTALL_STATUS" == "success" ]] && ANY_SUCCESS=1
+[[ "$DESKTOP_INSTALL_STATUS" == "success" ]] && ANY_SUCCESS=1
+
+if [[ $ANY_SUCCESS -eq 1 ]]; then
+  case ":$PATH:" in
+    *":$INSTALL_BIN_DIR:"*) ;;
+    *)
+      printf '\n  %b\n' "${R}!${N} ${B}${INSTALL_BIN_DIR}${N} is not in your PATH."
+      printf '  %b\n' "${D}Add to ~/.bashrc:${N}  export PATH=\"${INSTALL_BIN_DIR}:\$PATH\""
+      ;;
+  esac
+fi
 echo ""
