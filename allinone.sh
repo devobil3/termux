@@ -1003,17 +1003,6 @@ install_desktop() {
     mkdir -p "$(dirname "$TARGET_DIR")"
     mv "$SRC_DIR" "$TARGET_DIR"
 
-    # Copy mmap VA39 compatibility library
-    cp "${BUILD_DIR}/libmmap_va39_fix.so" "$TARGET_DIR/libmmap_va39_fix.so"
-    chmod 755 "$TARGET_DIR/libmmap_va39_fix.so"
-
-    # Patch language server binary if present (VA39 surgical patch)
-    local ls_path="$TARGET_DIR/resources/bin/language_server"
-    if [[ -f "$ls_path" ]]; then
-      info "Patching language_server (VA39 fix)..."
-      python3 "${BUILD_DIR}/va39_patch.py" "$ls_path" "$ls_path"
-    fi
-
     # Icon
     mkdir -p "$(dirname "$ICON_DST")"
     if [[ -f "$ICON_SRC" ]]; then
@@ -1042,41 +1031,138 @@ sys.exit(1)
 ' "$TARGET_DIR/resources/app.asar" "$ICON_DST" 2>/dev/null || true
     fi
 
-    # Create launcher wrapper (with VA39 interposer, GPU flags, keyring setup)
+    # Apply Desktop Fix (VA39/Termux/PRoot)
+    local APP_DIR="$TARGET_DIR"
+    local BIN_DIR="$APP_DIR/resources/bin"
+    local INTERPOSER_SO="$APP_DIR/libmmap_va39_fix.so"
+
+    # 1. Backups
+    info "Backing up original binaries..."
+    [[ -f "$APP_DIR/antigravity" && ! -f "$APP_DIR/antigravity.orig" ]] && cp "$APP_DIR/antigravity" "$APP_DIR/antigravity.orig"
+    [[ -f "$BIN_DIR/language_server" && ! -f "$BIN_DIR/language_server.orig" ]] && cp "$BIN_DIR/language_server" "$BIN_DIR/language_server.orig"
+
+    # 2. Compile Interposer
+    info "Compiling mmap interposer..."
+    cat << 'COF' > "${BUILD_DIR}/desktop_mmap_va39_fix.c"
+// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/mman.h>
+
+/*
+ * TCMalloc assumes a 48-bit Virtual Address (VA) space.
+ * Many ARM64 Android kernels (and chroots running on them) are limited to 39 bits.
+ * This interposer intercepts mmap calls and clears the hint address if it
+ * exceeds the 39-bit boundary, allowing the kernel to pick a safe address.
+ */
+
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+
+enum { max_va_bits = 39 };
+static const uintptr_t va_boundary = (uintptr_t)1 << max_va_bits;
+
+// NOLINTNEXTLINE(readability-inconsistent-declaration-parameter-name)
+void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
+    static void *(*real_mmap)(void *, size_t, int, int, int, off_t) = NULL;
+    if (!real_mmap) {
+        void *symbol = dlsym(RTLD_NEXT, "mmap");
+        memcpy(&real_mmap, &symbol, sizeof(real_mmap));
+    }
+
+    int is_fixed = (flags & MAP_FIXED) != 0;
+#ifdef MAP_FIXED_NOREPLACE
+    is_fixed = is_fixed || (flags & MAP_FIXED_NOREPLACE) != 0;
+#endif
+
+    if (!is_fixed && (uintptr_t)addr >= va_boundary) {
+        addr = NULL;
+    }
+
+    return real_mmap(addr, length, prot, flags, fd, offset);
+}
+COF
+    gcc -O2 -fPIC -shared -o "$INTERPOSER_SO" "${BUILD_DIR}/desktop_mmap_va39_fix.c" -ldl
+
+    # 3. Surgical Patch for Language Server
+    info "Applying surgical binary patch to language_server..."
+    python3 - "$BIN_DIR/language_server.orig" "$BIN_DIR/language_server" << 'PY'
+import sys, shutil, struct, pathlib
+src, dst = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+data = bytearray(src.read_bytes())
+def get(off): return struct.unpack_from("<I", data, off)[0]
+def put(off, word): struct.pack_into("<I", data, off, word)
+
+# Segment 01 (R E) for language_server ends at 0x060dc2e0
+hi = 0x060dc2e0
+counts = {"ubfx": 0, "lsl": 0, "mask": 0, "mmap": 0, "f2": 0}
+
+for off in range(0, hi, 4):
+    w = get(off)
+    if (w & 0x7F800000) == 0x53000000:
+        immr, imms = (w >> 16) & 0x3F, (w >> 10) & 0x3F
+        if immr == 42 and imms == 44:
+            put(off, (w & ~((0x3F << 16) | (0x3F << 10))) | (35 << 16) | (37 << 10)); counts["ubfx"] += 1
+        elif immr == 22 and imms == 21:
+            put(off, (w & ~((0x3F << 16) | (0x3F << 10))) | (29 << 16) | (28 << 10)); counts["lsl"] += 1
+
+for off in range(0, hi - 4, 4):
+    if get(off) == 0x92D3800A and get(off + 4) == 0xF2E0000A:
+        put(off, 0x9280000A); put(off + 4, 0xD35DFD4A); counts["mask"] += 1
+
+for off in range(0, hi, 4):
+    if get(off) == 0xF2E00029: put(off, 0xD3596129); counts["mmap"] += 1
+
+word_rewrites = {
+    0xD2C20009: 0xD2C00409, 0xD2C2000A: 0xD2C0040A, 0xF2C20008: 0xF2DFF408,
+    0xF2C20009: 0xF2DFF409, 0xD2C10009: 0xD2C00209, 0xD2C1000A: 0xD2C0020A,
+    0xF2C38008: 0xF2DFF708, 0xF2C38009: 0xF2DFF709, 0x92560A6C: 0x925D0A6C,
+    0x92560A6A: 0x925D0A6A, 0xD2C3000D: 0xD2C0060D, 0xD2C3000C: 0xD2C0060C,
+    0xD2C08008: 0xD2C00108,
+}
+for off in range(0, hi, 4):
+    w = get(off)
+    if w in word_rewrites: put(off, word_rewrites[w])
+
+for off in range(0, hi - 12, 4):
+    if get(off) == 0xAA1F03E5 and get(off + 4) == 0xAA1F03E6 and get(off + 8) == 0xD28036E0 and (get(off + 12) & 0xFC000000) == 0x94000000:
+        put(off + 8, 0xD2800600); counts["f2"] += 1
+
+dst.write_bytes(data)
+dst.chmod(0o755)
+print(f"  Patched: {counts}")
+PY
+
+    # 4. Create Wrapper
+    info "Creating launcher wrapper..."
     mkdir -p "$INSTALL_BIN_DIR"
-    cat > "$WRAPPER" << 'WEOF'
+    cat > "$WRAPPER" << 'EOF'
 #!/usr/bin/env bash
+set -euo pipefail
 APP_DIR="$HOME/.local/share/Antigravity-arm64"
 INTERPOSER="$APP_DIR/libmmap_va39_fix.so"
-
-export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu:$APP_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-
-# In PRoot-on-Termux, clear any inherited Termux LD_PRELOAD before setting ours
+export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu:$APP_DIR"
 [[ -d "/data/data/com.termux/files/usr/bin" ]] && unset LD_PRELOAD
-
-if [[ -f "$INTERPOSER" ]]; then
-  export LD_PRELOAD="$INTERPOSER"
-fi
-
+export LD_PRELOAD="$INTERPOSER"
 if [[ -f "/data/data/com.termux/files/usr/etc/tls/cert.pem" ]]; then
-  export SSL_CERT_FILE="/data/data/com.termux/files/usr/etc/tls/cert.pem"
+    export SSL_CERT_FILE="/data/data/com.termux/files/usr/etc/tls/cert.pem"
 elif [[ -f "/etc/ssl/certs/ca-certificates.crt" ]]; then
-  export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
+    export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
 fi
-
 export LIBGL_ALWAYS_SOFTWARE=1
-
-if command -v gnome-keyring-daemon >/dev/null 2>&1; then
-  eval "$(gnome-keyring-daemon --start --components=secrets 2>/dev/null)" || true
-  export DBUS_SESSION_BUS_ADDRESS
-  echo -n "" | gnome-keyring-daemon --unlock 2>/dev/null || true
-fi
-
+export ELECTRON_ENABLE_LOGGING=1
+eval $(gnome-keyring-daemon --start --components=secrets)
+export DBUS_SESSION_BUS_ADDRESS
+echo -n "" | gnome-keyring-daemon --unlock || true
 exec "$APP_DIR/antigravity" \
-  --no-sandbox --disable-gpu --disable-gpu-compositing \
-  --disable-gpu-rasterization --disable-dev-shm-usage \
-  --ignore-certificate-errors --remote-allow-origins=* "$@"
-WEOF
+    --no-sandbox --disable-gpu --disable-gpu-compositing \
+    --disable-gpu-rasterization --disable-dev-shm-usage \
+    --ignore-certificate-errors --remote-allow-origins=* "$@"
+EOF
     chmod +x "$WRAPPER"
 
     # Desktop entry
@@ -1395,8 +1481,8 @@ QUEUE=()
 TOTAL_TASKS=${#QUEUE[@]}
 CURRENT_TASK=0
 
-# Compile shared compatibility layer if needed (IDE and/or Desktop)
-if [[ $RUN_IDE_INSTALL -eq 1 || $RUN_DESKTOP_INSTALL -eq 1 ]]; then
+# Compile shared compatibility layer if needed
+if [[ $RUN_IDE_INSTALL -eq 1 ]]; then
   info "Compiling mmap compatibility layer..."
   "$local_cc" -O2 -fPIC -shared -o "${BUILD_DIR}/libmmap_va39_fix.so" "${BUILD_DIR}/mmap_va39_fix.c" -ldl
 fi
