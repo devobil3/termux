@@ -14,7 +14,7 @@ ENV_TYPE="unknown"
 case "$tn" in
   proot|proot-*|proot_*) ENV_TYPE="proot" ;;
   *)
-    if [[ -n "${TERMUX_VERSION:-}" ]]; then
+    if [[ -n "${TERMUX_VERSION:-}" ]] && [[ ":$PATH:" == *":/data/data/com.termux/files/usr/bin:"* ]]; then
       ENV_TYPE="termux"
     fi
     ;;
@@ -233,13 +233,13 @@ TMP_LOGO="${BUILD_DIR}/logo.ans"
 base64 -d << 'EOF' > "$TMP_LOGO"
 G1s/MjVsG1swbSAgICAgICAgICAgICAgICAgICAgICAgIBtbMG0KICAgICAgICAgICAgICAgICAg
 ICAgICAgG1swbQogICAgICAgICAbWzM4OzI7MTU0OzE1OTs1M23iloQbWzM4OzI7MTg5OzE3MTs2
-NTs0ODsyOzE4NjsxNDM7MzZt4paEG1szODsyOzk4OzE0Njs2ODs0ODsyOzIyODsxNDM7NDZt4paE
-G1szODsyOzIxMjsxMjA7NzA7NDg7MjsyMzQ7MTEzOzUzbeKWhBtbMzg7MjsyMjc7OTc7Njg7NDg7
-MjsxOTg7NzU7NDhtbeKWhBtbMG0bWzM4OzI7MTk1OzY3OzU0beKWhBtbMG0gICAgICAgICAbWzBt
+NTs0ODsyOzE4NjsxNDM7MzZt4paEG1szODsyOzE5ODsxNDY7Njg7NDg7MjsyMjg7MTQzOzQ2beKW
+hBtbMzg7MjsyMTI7MTIwOzcwOzQ4OzI7MjM0OzExMzs1M23iloQbWzM4OzI7MjI3Ozk3OzY4OzQ4
+OzI7MTk4Ozc1OzQ4beKWhBtbMG0bWzM4OzI7MTk1OzY3OzU0beKWhBtbMG0gICAgICAgICAbWzBt
 CiAgICAgICAgG1szODsyOzEwNjsxNjE7ODdt4paEG1szODsyOzExMzsxNzg7MTE2OzQ4OzI7MTQ4
-OzE4NTs4OG3iloQbWzM4OzI7MTA5OzE4NDsxMzA7NDg7MjsxNDg7MTY4Ozk1beKWhBtbMzg7Mjsx
+OzE4NTs4OG3iloQbWzM4OzI7MTA5OzE2NDsxMzA7NDg7MjsxNDg7MTY4Ozk1beKWhBtbMzg7Mjsx
 MTg7MTQ3OzEzNzs0ODsyOzE1OTsxNDg7OTlt4paEG1szODsyOzE0MDsxMzA7MTM1OzQ4OzI7MTgw
-OzEyNjs5N7eKWhBtbMzg7MjsxNjg7MTEyOzEyMjs0ODsyOzIwMjsxMDU7ODlt4paEG1szODsyOzE
+OzEyNjs5N23iloQbWzM4OzI7MTY4OzExMjsxMjI7NDg7MjsyMDI7MTA1Ozg5beKWhBtbMzg7Mjsx
 OTY7OTY7MTA2OzQ4OzI7MjIzOzg3Ozc5beKWhBtbMG0bWzM4OzI7MTc2OzY4Ozc0beKWhBtbMG0g
 ICAgICAgIBtbMG0KICAgICAgIBtbMzg7Mjs0NTs5MTs2OW3iloQbWzM4OzI7Nzc7MTcxOzE1NTs0
 ODsyOzEwMDsxODI7MTI2beKWhBtbMzg7Mjs2NTsxNTk7MTgwOzQ4OzI7ODQ7MTY5OzE0OG3iloQb
@@ -248,8 +248,8 @@ Mjs4NDsxNDQ7MTc3beKWhBtbMzg7Mjs3NTsxMzM7MjEwOzQ4OzI7MTAyOzEzMjsxNzVt4paEG1sz
 ODsyOzk4OzEyNjsyMDA7NDg7MjsxMzA7MTE5OzE2M23iloQbWzM4OzI7MTI3OzExNjsxODI7NDg7
 MjsxNjI7MTA2OzE0M23iloQbWzM4OzI7MTU3OzEwNzsxNTk7NDg7MjsxOTE7OTQ7MTIxbeKWhBtb
 MG0gICAgICAgIBtbMG0KICAgICAgIBtbMzg7Mjs1ODsxNTg7MTg0OzQ4OzI7NTc7MTM0OzEyOG3i
-loQbWzM4OzI7NTM7MTUwOzIxMDs0ODsyOzy2OzE2MDsxODRt4paEG1szODsyOzUwOzE0MjsyMjg7
-NDg7Mjs1NDsxNDk7MjA3beKWhBtbMzg7Mjs0OTsxMzc7MjQwOzQ4OzI7NTE7MTyMOzIyNG3iloQb
+loQbWzM4OzI7NTM7MTUwOzIxMDs0ODsyOzYyOzE2MDsxODRt4paEG1szODsyOzUwOzE0MjsyMjg7
+NDg7Mjs1NDsxNDk7MjA3beKWhBtbMzg7Mjs0OTsxMzc7MjQwOzQ4OzI7NTE7MTQyOzIyNG3iloQb
 WzM4OzI7NDk7MTM1OzI0Njs0ODsyOzUzOzEzODsyMzNt4paEG1szODsyOzUzOzEzNDsyNDc7NDg7
 Mjs2MDsxMzQ7MjM0beKWhBtbMzg7Mjs2MjsxMzM7MjQ0OzQ4OzI7NzU7MTMwOzIyOG3iloQbWzM4
 OzI7NzY7MTMxOzIzNzs0ODsyOzk3OzEyNjsyMTVt4paEG1szODsyOzk3OzEyOTsyMjU7NDg7Mjsx
@@ -259,19 +259,19 @@ OzI7NTE7MTk5OzIwOW3iloQbWzM4OzI7NDg7MTM3OzI0Mjs0ODsyOzUwOzE0MjsyMjlt4paEG1sz
 ODsyOzM1Ozk3OzE4MDs0ODsyOzQ5OzEzNzsyNDJt4paEG1swbRtbN20bWzM4OzI7NDU7MTQ0OzIz
 MG3iloQbWzM4OzI7MzI7ODk7MTY4beKWhBtbMzg7MjszNDs5MDsxNjlt4paEG1szODsyOzUxOzEy
 NTsyMzRt4paEG1swbRtbMzg7Mjs0MzsxMDE7MTg4OzQ4OzI7NjQ7MTM1OzI0OW3iloQbWzM4OzI7
-NjY7MTM3OzUxOzQ4OzI7Nzg7MTM1OzNDNt4paEG1szODsyOzc5OzEzODsyNDc7NDg7Mjs5Njsx
-MzU7MjM0beKWhBtbMG0bWzM4OzI7NTY7ODY7MTUxbeKWhBtbMG0gICAgICAbWzBtCiAgICAgIBtb
+NjY7MTM3OzI1MTs0ODsyOzc4OzEzNTsyNDNt4paEG1szODsyOzc5OzEzODsyNDc7NDg7Mjs5Njsx
+MzU7MjM0beKWhBtbMG0bWzM4OzI7NTk7ODY7MTUxbeKWhBtbMG0gICAgICAbWzBtCiAgICAgIBtb
 Mzg7Mjs0NDsxMzg7MjM3OzQ4OzI7NDA7MTM1OzIxNG3iloQbWzM4OzI7NDY7MTM1OzI0Nzs0ODsy
 OzQ2OzEzODsyNDBt4paEG1swbRtbN20bWzM4OzI7NDI7MTE4OzIxOG3iloQbWzBtICAgICAgG1s3
 bRtbMzg7Mjs1MzsxMjI7MjI3beKWhBtbMG0bWzM4OzI7NTk7MTM2OzI1Mzs0ODsyOzY3OzEzODsy
-NTJt4paEG1szODsyOzY2OzEzODsyNTItNDg7Mjs3MTsxMjk7MjMybeKWhBtbMG0gICAgICAbWzBt
+NTJt4paEG1szODsyOzY2OzEzODsyNTI7NDg7Mjs3MTsxMjk7MjMybeKWhBtbMG0gICAgICAbWzBt
 CiAgICAgG1szODsyOzQ1OzEzNjsyNDM7NDg7MjszNTsxMTM7MTkybeKWhBtbMzg7Mjs0NDsxMjc7
-MjM2OzQ4OzI7NDY7MTM2OzQ0NG3iloQbWzBtG1s3bRtbMzg7MjszNDs5NzsxODFt4paEG1swbSAg
-ICAgICAgG1s3bRtbMzg7Mjs0MTsxMDI7MTkybeKWhBtbMG0bWzM4OzI7NTE7MTk5OzI0Mzs0ODsy
+MjM2OzQ4OzI7NDY7MTM2OzI0NG3iloQbWzBtG1s3bRtbMzg7MjszNDs5NzsxODFt4paEG1swbSAg
+ICAgICAgG1s3bRtbMzg7Mjs0MTsxMDI7MTkybeKWhBtbMG0bWzM4OzI7NTE7MTM5OzI0Mzs0ODsy
 OzU5OzEzNjsyNTNt4paEG1szODsyOzU3OzEzNTsyNTM7NDg7Mjs0OTsxMDc7MTk4beKWhBtbMG0g
 ICAgIBtbMG0KICAgG1szODsyOzQxOzEyMDsyMTht4paEG1szODsyOzQ0OzEyNTsyMzE7NDg7Mjs0
 MzsxMzA7MjMybeKWhBtbMG0bWzdtG1szODsyOzQ2OzEzMjsyNDRt4paEG1swbSAgICAgICAgICAg
-IBtbN20bWzM4OzI7NTE7MTMyOzI1MW3iloQbWzBtG1szODsyOzQ3OzEyNTsyMzg7NDg7Mjs5MTsx
+IBtbN20bWzM4OzI7NTE7MTMyOzI1MW3iloQbWzBtG1szODsyOzQ3OzEyNTsyMzg7NDg7Mjs1MTsx
 MjY7MjM4beKWhBtbMG0bWzM4OzI7NDE7MTA5OzIwN23iloQbWzBtICAgG1swbQogICAgICAgICAg
 ICAgICAgICAgICAgICAgICAbWzBtCiAgICAgICAgICAgICAgICAgICAgICAgIBtbMG0KG1s/MjVo
 EOF
@@ -450,7 +450,7 @@ fi
 
 # ── Prerequisite Checks & Package Manager Prompts Upfront ─────────────────────
 detect_compiler() {
-  if [[ -x "/data/data/com.termux/files/usr/bin/clang" ]]; then
+  if [[ "$ENV_TYPE" == "termux" ]] && [[ -x "/data/data/com.termux/files/usr/bin/clang" ]]; then
     echo "/data/data/com.termux/files/usr/bin/clang"
     return 0
   fi
@@ -463,6 +463,7 @@ detect_compiler() {
   fi
   return 1
 }
+
 
 check_glibc() {
   if [[ "$ENV_TYPE" == "termux" ]]; then
@@ -651,20 +652,29 @@ for off in range(lo, hi - 4, 4):
 for off in range(lo, hi, 4):
     if get(off) == 0xF2E00029: put(off, 0xD3596129); mmap_count += 1
 
+word_rewrites = {
+    0xD2C20009: 0xD2C00409, 0xD2C2000A: 0xD2C0040A, 0xF2C20008: 0xF2DFF408,
+    0xF2C20009: 0xF2DFF409, 0xD2C10009: 0xD2C00209, 0xD2C1000A: 0xD2C0020A,
+    0xF2C38008: 0xF2DFF708, 0xF2C38009: 0xF2DFF709, 0x92560A6C: 0x925D0A6C,
+    0x92560A6A: 0x925D0A6A, 0xD2C3000D: 0xD2C0060D, 0xD2C3000C: 0xD2C0060C,
+    0xD2C08008: 0xD2C00108,
+}
 for off in range(lo, hi, 4):
-    if get(off) == 0xD5033F5F:
-        if off + 20 < hi and get(off + 4) == 0xA9BE7BFD and get(off + 8) == 0x910003FD:
-            w = get(off + 12)
-            if (w & 0x7F000000) == 0x14000000:
-                target_off = off + 12 + ((w & 0x00FFFFFF) << 2)
-                if target_off < hi and get(target_off) == 0xAA1E03E0:
-                    put(off, 0xD503201F); faccessat2_count += 1
+    w = get(off)
+    if w in word_rewrites: put(off, word_rewrites[w])
 
+for off in range(0, len(data) - 12, 4):
+    if (get(off) == 0xAA1F03E5 and get(off + 4) == 0xAA1F03E6
+            and get(off + 8) == 0xD28036E0
+            and (get(off + 12) & 0xFC000000) == 0x94000000):
+        put(off + 8, 0xD2800600); faccessat2_count += 1
+
+dst.write_bytes(data)
+dst.chmod(0o755)
 print(f"Patched: ubfx={ubfx_count} lsl={lsl_count} mask={mask_count} mmap={mmap_count} faccessat2={faccessat2_count}")
 PYEOF
-
-# ── Shared: generic_helper.c (Desktop/IDE bootstrapper) ──────────────────────
-cat << 'EOF' > "${BUILD_DIR}/generic_helper.c"
+# ── Shared: ide_ls_helper.c (IDE Language Server Wrapper) ─────────────────────
+cat << 'EOF' > "${BUILD_DIR}/ide_ls_helper.c"
 #include <errno.h>
 #include <libgen.h>
 #include <limits.h>
@@ -675,97 +685,101 @@ cat << 'EOF' > "${BUILD_DIR}/generic_helper.c"
 #include <sys/types.h>
 #include <unistd.h>
 
-#ifndef PATCHED_BIN_NAME
-#define PATCHED_BIN_NAME "binary.va39"
-#endif
+#define INTERPOSER_ENVVAR "AGY_MMAP_INTERPOSER"
 
-#ifndef INTERPOSER_NAME
-#define INTERPOSER_NAME "libmmap_va39_fix.so"
+#ifndef PATCHED_BIN_NAME
+#define PATCHED_BIN_NAME "language_server_linux_arm.va39"
 #endif
 
 int main(int argc, char **argv) {
     char exec_path[PATH_MAX];
     char patched_bin[PATH_MAX];
     char lib_path[PATH_MAX * 3];
-    const char *loader = "/lib/ld-linux-aarch64.so.1";
+    const char *loader_primary   = "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1";
+    const char *loader_fallback  = "/lib/ld-linux-aarch64.so.1";
+    const char *loader;
     const char *dir;
-    char interposer[PATH_MAX];
+    const char *interposer;
     char **new_argv;
     ssize_t read_len;
     int written, arg_idx, new_argc;
 
+    unsetenv("LD_PRELOAD");
     unsetenv("LD_LIBRARY_PATH");
     setenv("GODEBUG", "netdns=cgo", 1);
 
-    if (access("/etc/ssl/certs/ca-certificates.crt", F_OK) == 0) {
+    if (access("/data/data/com.termux/files/usr/etc/tls/cert.pem", F_OK) == 0) {
+        setenv("SSL_CERT_FILE", "/data/data/com.termux/files/usr/etc/tls/cert.pem", 1);
+    } else if (access("/etc/ssl/certs/ca-certificates.crt", F_OK) == 0) {
         setenv("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt", 1);
     }
 
     read_len = readlink("/proc/self/exe", exec_path, sizeof(exec_path) - 1);
-    if (read_len == -1) return 1;
+    if (read_len == -1) {
+        perror("[ide-ls] readlink /proc/self/exe failed");
+        return 1;
+    }
     exec_path[read_len] = '\0';
     dir = dirname(exec_path);
 
-    written = snprintf(patched_bin, sizeof(patched_bin), "%s/%s", dir, PATCHED_BIN_NAME);
-    if (written < 0 || written >= (int)sizeof(patched_bin)) return 1;
-
-    interposer[0] = '\0';
-    char temp_dir[PATH_MAX];
-    strncpy(temp_dir, dir, sizeof(temp_dir) - 1);
-    temp_dir[sizeof(temp_dir) - 1] = '\0';
-
-    while (1) {
-        snprintf(interposer, sizeof(interposer), "%s/%s", temp_dir, INTERPOSER_NAME);
-        if (access(interposer, F_OK) == 0) {
-            break;
-        }
-        char *parent = dirname(temp_dir);
-        if (!parent || strcmp(parent, temp_dir) == 0 || strcmp(parent, "/") == 0 || strcmp(parent, ".") == 0) {
-            interposer[0] = '\0';
-            break;
-        }
-        char temp_parent[PATH_MAX];
-        strncpy(temp_parent, parent, sizeof(temp_parent) - 1);
-        temp_parent[sizeof(temp_parent) - 1] = '\0';
-        strncpy(temp_dir, temp_parent, sizeof(temp_dir) - 1);
-        temp_dir[sizeof(temp_dir) - 1] = '\0';
+    written = snprintf(patched_bin, sizeof(patched_bin),
+                       "%s/%s", dir, PATCHED_BIN_NAME);
+    if (written < 0 || written >= (int)sizeof(patched_bin)) {
+        fprintf(stderr, "[ide-ls] Path too long.\n");
+        return 1;
     }
 
-    if (interposer[0] == '\0') {
+    interposer = getenv(INTERPOSER_ENVVAR);
+    if (!interposer || interposer[0] == '\0') {
         const char *home = getenv("HOME");
+        static char interposer_buf[PATH_MAX];
         if (home) {
-            snprintf(interposer, sizeof(interposer), "%s/.local/share/Antigravity IDE/%s", home, INTERPOSER_NAME);
-            if (access(interposer, F_OK) != 0) {
-                snprintf(interposer, sizeof(interposer), "%s/.local/lib/%s", home, INTERPOSER_NAME);
-                if (access(interposer, F_OK) != 0) {
-                    interposer[0] = '\0';
-                }
-            }
+            snprintf(interposer_buf, sizeof(interposer_buf),
+                     "%s/.local/share/Antigravity IDE/libmmap_va39_fix.so", home);
+            interposer = interposer_buf;
         }
     }
 
-    written = snprintf(lib_path, sizeof(lib_path),
-                       "%s:%s/../lib:/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib64:/usr/lib64:/lib:/usr/lib", dir, dir);
-    if (written < 0 || written >= (int)sizeof(lib_path)) return 1;
+    if (access(loader_primary, F_OK) == 0) {
+        loader = loader_primary;
+    } else {
+        loader = loader_fallback;
+    }
 
-    int has_interposer = (interposer[0] != '\0' && access(interposer, F_OK) == 0);
-    new_argc = argc + (has_interposer ? 8 : 5);
+    if (access("/data/data/com.termux/files/usr/glibc/lib", F_OK) == 0) {
+        written = snprintf(lib_path, sizeof(lib_path),
+                           "%s/../lib:/data/data/com.termux/files/usr/glibc/lib", dir);
+    } else {
+        written = snprintf(lib_path, sizeof(lib_path),
+                           "%s/../lib:/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib64:/usr/lib64:/lib:/usr/lib", dir);
+    }
+
+    new_argc = argc + 8;
     new_argv = malloc((size_t)new_argc * sizeof(*new_argv));
-    if (!new_argv) return 1;
+    if (!new_argv) {
+        perror("[ide-ls] malloc failed");
+        return 1;
+    }
 
     arg_idx = 0;
     new_argv[arg_idx++] = (char *)loader;
-    if (has_interposer) {
+
+    if (interposer && access(interposer, F_OK) == 0) {
         new_argv[arg_idx++] = "--preload";
         new_argv[arg_idx++] = (char *)interposer;
     }
+
     new_argv[arg_idx++] = "--library-path";
     new_argv[arg_idx++] = lib_path;
     new_argv[arg_idx++] = patched_bin;
-    for (int i = 1; i < argc; i++) new_argv[arg_idx++] = argv[i];
+
+    for (int i = 1; i < argc; i++) {
+        new_argv[arg_idx++] = argv[i];
+    }
     new_argv[arg_idx] = NULL;
 
     execv(loader, new_argv);
+    perror("[ide-ls] execv failed");
     free(new_argv);
     return 1;
 }
@@ -773,22 +787,40 @@ EOF
 
 # ── Shared compatibility fix source (mmap_va39_fix.c) ────────────────────────
 cat << 'EOF' > "${BUILD_DIR}/mmap_va39_fix.c"
+// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
 #define _GNU_SOURCE
-#include <stdio.h>
-#include <sys/mman.h>
-#include <stdint.h>
-#include <stddef.h>
 #include <dlfcn.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/mman.h>
 
-static void* (*real_mmap)(void*, size_t, int, int, int, off_t) = NULL;
+/*
+ * TCMalloc assumes a 48-bit Virtual Address (VA) space.
+ * Many ARM64 Android kernels (and chroots running on them) are limited to 39 bits.
+ * This interposer intercepts mmap calls and clears the hint address if it
+ * exceeds the 39-bit boundary, allowing the kernel to pick a safe address.
+ */
 
-void* mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+
+enum { max_va_bits = 39 };
+static const uintptr_t va_boundary = (uintptr_t)1 << max_va_bits;
+
+// NOLINTNEXTLINE(readability-inconsistent-declaration-parameter-name)
+void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
+    static void *(*real_mmap)(void *, size_t, int, int, int, off_t) = NULL;
     if (!real_mmap) {
-        real_mmap = dlsym(RTLD_NEXT, "mmap");
+        void *symbol = dlsym(RTLD_NEXT, "mmap");
+        memcpy(&real_mmap, &symbol, sizeof(real_mmap));
     }
 
-    const uintptr_t va_boundary = 0x8000000000ULL; // 39-bit limit
-    int is_fixed = (flags & MAP_FIXED);
+    int is_fixed = (flags & MAP_FIXED) != 0;
+#ifdef MAP_FIXED_NOREPLACE
+    is_fixed = is_fixed || (flags & MAP_FIXED_NOREPLACE) != 0;
+#endif
 
     if (!is_fixed && (uintptr_t)addr >= va_boundary) {
         addr = NULL;
@@ -798,20 +830,19 @@ void* mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 }
 EOF
 
-# Global AUR Version Cache
-AUR_PKGVER=""
-AUR_BUILD=""
+# Fetch PKGBUILD version helper
 fetch_aur_version() {
-  if [[ -z "$AUR_PKGVER" || -z "$AUR_BUILD" ]]; then
-    info "Fetching latest version details from Arch Linux AUR..."
-    local pkgbuild
-    pkgbuild=$(download_file "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=antigravity" "" || echo "")
-    [[ -z "$pkgbuild" ]] && die "Failed to retrieve AUR PKGBUILD."
-    AUR_PKGVER=$(echo "$pkgbuild" | grep -E "^pkgver=" | cut -d= -f2 | xargs)
-    AUR_BUILD=$(echo "$pkgbuild" | grep -E "^_build=" | cut -d= -f2 | xargs)
-    [[ -z "$AUR_PKGVER" || -z "$AUR_BUILD" ]] && die "Failed to parse pkgver/_build from AUR PKGBUILD."
-    info "Latest AUR package version: v${AUR_PKGVER}-${AUR_BUILD}"
-  fi
+  local pkg_name="$1"
+  info "Fetching latest version details for $pkg_name from AUR..." >&2
+  local pkgbuild
+  pkgbuild=$(download_file "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=${pkg_name}" "" || echo "")
+  [[ -z "$pkgbuild" ]] && die "Failed to retrieve AUR PKGBUILD for $pkg_name."
+  local pkgver
+  pkgver=$(echo "$pkgbuild" | grep -E "^pkgver=" | cut -d= -f2 | xargs)
+  local build_num
+  build_num=$(echo "$pkgbuild" | grep -E "^_build=" | cut -d= -f2 | xargs)
+  [[ -z "$pkgver" || -z "$build_num" ]] && die "Failed to parse pkgver/_build from AUR PKGBUILD for $pkg_name."
+  echo "${pkgver}:${build_num}"
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -830,7 +861,9 @@ install_cli() {
     CLI_AGY_BAK="$INSTALL_BIN_DIR/agy.bak.$$"
   fi
 
-  if ! (
+  local status=0
+  set +e
+  (
     trap - EXIT
     set -e
     if [[ -n "$CLI_AGY_BAK" ]]; then
@@ -860,7 +893,14 @@ install_cli() {
 
     mkdir -p "$INSTALL_BIN_DIR"
     install -m 0755 "$CLI_UPSTREAM_BIN" "$INSTALL_BIN_DIR/agy" || die "CLI: Failed to install agy"
-  ); then
+  )
+  status=$?
+  set -e
+
+  if [[ $status -ne 0 ]]; then
+    if [[ -n "${CLI_UPSTREAM_BIN:-}" && -f "$CLI_UPSTREAM_BIN" && "$CLI_UPSTREAM_BIN" != "${BUILD_DIR}"* ]]; then
+      warn "If the local CLI binary is corrupted, please manually delete: $CLI_UPSTREAM_BIN"
+    fi
     if [[ -n "$CLI_AGY_BAK" && -f "$CLI_AGY_BAK" ]]; then
       rm -f "$INSTALL_BIN_DIR/agy"
       mv "$CLI_AGY_BAK" "$INSTALL_BIN_DIR/agy"
@@ -930,7 +970,9 @@ install_desktop() {
     DESKTOP_ICON_CREATED_FRESH=1
   fi
 
-  if ! (
+  local status=0
+  set +e
+  (
     trap - EXIT
     set -e
 
@@ -942,20 +984,35 @@ install_desktop() {
 
     # Download if needed
     if [[ ! -f "$DESKTOP_ARCHIVE" ]]; then
-      fetch_aur_version
+      local ver_info
+      ver_info=$(fetch_aur_version "antigravity")
+      local desktop_ver="${ver_info%%:*}"
+      local desktop_build="${ver_info#*:}"
+      info "Latest Desktop: v${desktop_ver}-${desktop_build}"
       info "Downloading $DESKTOP_ARCHIVE..."
-      download_file "https://storage.googleapis.com/antigravity-public/antigravity-hub/${AUR_PKGVER}-${AUR_BUILD}/linux-arm/Antigravity.tar.gz" "$DESKTOP_ARCHIVE" || { rm -f "$DESKTOP_ARCHIVE"; die "Desktop: Download failed."; }
+      download_file "https://storage.googleapis.com/antigravity-public/antigravity-hub/${desktop_ver}-${desktop_build}/linux-arm/Antigravity.tar.gz" "$DESKTOP_ARCHIVE" || { rm -f "$DESKTOP_ARCHIVE"; die "Desktop: Download failed."; }
       ok "Downloaded $DESKTOP_ARCHIVE"
     fi
 
     # Extract
     info "Extracting $DESKTOP_ARCHIVE..."
-    extract_tar "$DESKTOP_ARCHIVE" "${BUILD_DIR}/desktop_extract"
+    extract_tar "$DESKTOP_ARCHIVE" "${BUILD_DIR}/desktop_extract" || die "Desktop: Extraction failed."
     local SRC_DIR="${BUILD_DIR}/desktop_extract/Antigravity-arm64"
     [[ -d "$SRC_DIR" ]] || die "Desktop: Antigravity-arm64 folder not found in archive."
 
     mkdir -p "$(dirname "$TARGET_DIR")"
     mv "$SRC_DIR" "$TARGET_DIR"
+
+    # Copy mmap VA39 compatibility library
+    cp "${BUILD_DIR}/libmmap_va39_fix.so" "$TARGET_DIR/libmmap_va39_fix.so"
+    chmod 755 "$TARGET_DIR/libmmap_va39_fix.so"
+
+    # Patch language server binary if present (VA39 surgical patch)
+    local ls_path="$TARGET_DIR/resources/bin/language_server"
+    if [[ -f "$ls_path" ]]; then
+      info "Patching language_server (VA39 fix)..."
+      python3 "${BUILD_DIR}/va39_patch.py" "$ls_path" "$ls_path"
+    fi
 
     # Icon
     mkdir -p "$(dirname "$ICON_DST")"
@@ -985,46 +1042,40 @@ sys.exit(1)
 ' "$TARGET_DIR/resources/app.asar" "$ICON_DST" 2>/dev/null || true
     fi
 
-    # Compile interposer
-    cp "${BUILD_DIR}/libmmap_va39_fix.so" "$TARGET_DIR/libmmap_va39_fix.so"
-    chmod 755 "$TARGET_DIR/libmmap_va39_fix.so"
-
-    # Patch language server
-    if [[ -f "$TARGET_DIR/resources/bin/language_server" ]]; then
-      info "Patching language_server..."
-      mv "$TARGET_DIR/resources/bin/language_server" "$TARGET_DIR/resources/bin/language_server.va39"
-      python3 "${BUILD_DIR}/va39_patch.py" "$TARGET_DIR/resources/bin/language_server.va39" "$TARGET_DIR/resources/bin/language_server.va39"
-      "$local_cc" -O2 -DPATCHED_BIN_NAME='"language_server.va39"' -o "$TARGET_DIR/resources/bin/language_server" "${BUILD_DIR}/generic_helper.c"
-      chmod 755 "$TARGET_DIR/resources/bin/language_server"
-    fi
-
-    # Wrap main binary
-    info "Wrapping main Electron binary..."
-    mv "$TARGET_DIR/antigravity" "$TARGET_DIR/antigravity.va39"
-    "$local_cc" -O2 -DPATCHED_BIN_NAME='"antigravity.va39"' -o "$TARGET_DIR/antigravity" "${BUILD_DIR}/generic_helper.c"
-    chmod 755 "$TARGET_DIR/antigravity"
-
-    # Create launcher wrapper
+    # Create launcher wrapper (with VA39 interposer, GPU flags, keyring setup)
     mkdir -p "$INSTALL_BIN_DIR"
     cat > "$WRAPPER" << 'WEOF'
 #!/usr/bin/env bash
-set -euo pipefail
 APP_DIR="$HOME/.local/share/Antigravity-arm64"
+INTERPOSER="$APP_DIR/libmmap_va39_fix.so"
+
+export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu:$APP_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# In PRoot-on-Termux, clear any inherited Termux LD_PRELOAD before setting ours
+[[ -d "/data/data/com.termux/files/usr/bin" ]] && unset LD_PRELOAD
+
+if [[ -f "$INTERPOSER" ]]; then
+  export LD_PRELOAD="$INTERPOSER"
+fi
+
 if [[ -f "/data/data/com.termux/files/usr/etc/tls/cert.pem" ]]; then
-    export SSL_CERT_FILE="/data/data/com.termux/files/usr/etc/tls/cert.pem"
+  export SSL_CERT_FILE="/data/data/com.termux/files/usr/etc/tls/cert.pem"
 elif [[ -f "/etc/ssl/certs/ca-certificates.crt" ]]; then
-    export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
+  export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
 fi
-export LIBGL_ALWAYS_SOFTWARE=1 ELECTRON_ENABLE_LOGGING=1
-if command -v gnome-keyring-daemon &>/dev/null; then
-    eval $(gnome-keyring-daemon --start --components=secrets 2>/dev/null || true)
-    export DBUS_SESSION_BUS_ADDRESS
-    echo -n "" | gnome-keyring-daemon --unlock 2>/dev/null || true
+
+export LIBGL_ALWAYS_SOFTWARE=1
+
+if command -v gnome-keyring-daemon >/dev/null 2>&1; then
+  eval "$(gnome-keyring-daemon --start --components=secrets 2>/dev/null)" || true
+  export DBUS_SESSION_BUS_ADDRESS
+  echo -n "" | gnome-keyring-daemon --unlock 2>/dev/null || true
 fi
+
 exec "$APP_DIR/antigravity" \
-    --no-sandbox --disable-gpu --disable-gpu-compositing \
-    --disable-gpu-rasterization --disable-dev-shm-usage \
-    --ignore-certificate-errors --remote-allow-origins=* "$@"
+  --no-sandbox --disable-gpu --disable-gpu-compositing \
+  --disable-gpu-rasterization --disable-dev-shm-usage \
+  --ignore-certificate-errors --remote-allow-origins=* "$@"
 WEOF
     chmod +x "$WRAPPER"
 
@@ -1043,7 +1094,15 @@ MimeType=text/plain;
 StartupNotify=true
 DEOF
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$(dirname "$DESKTOP_FILE")" 2>/dev/null || true
-  ); then
+  )
+  status=$?
+  set -e
+
+  if [[ $status -ne 0 ]]; then
+    if [[ -f "$DESKTOP_ARCHIVE" ]]; then
+      warn "If the Desktop archive is corrupted, please manually delete: $DESKTOP_ARCHIVE"
+    fi
+
     # ROLLBACK:
     if [[ -n "$DESKTOP_DIR_BAK" && -d "$DESKTOP_DIR_BAK" ]]; then
       rm -rf "$TARGET_DIR"
@@ -1159,7 +1218,9 @@ install_ide() {
     IDE_ICON_CREATED_FRESH=1
   fi
 
-  if ! (
+  local status=0
+  set +e
+  (
     trap - EXIT
     set -e
 
@@ -1171,15 +1232,19 @@ install_ide() {
 
     # Download if needed
     if [[ ! -f "$IDE_ARCHIVE" ]]; then
-      fetch_aur_version
+      local ver_info
+      ver_info=$(fetch_aur_version "antigravity-ide")
+      local ide_ver="${ver_info%%:*}"
+      local ide_build="${ver_info#*:}"
+      info "Latest IDE: v${ide_ver}-${ide_build}"
       info "Downloading $IDE_ARCHIVE..."
-      download_file "https://storage.googleapis.com/antigravity-public/antigravity-hub/${AUR_PKGVER}-${AUR_BUILD}/linux-arm/Antigravity%20IDE.tar.gz" "$IDE_ARCHIVE" || { rm -f "$IDE_ARCHIVE"; die "IDE: Download failed."; }
+      download_file "https://dl.google.com/release2/j0qc3/antigravity/stable/${ide_ver}-${ide_build}/linux-arm/Antigravity%20IDE.tar.gz" "$IDE_ARCHIVE" || { rm -f "$IDE_ARCHIVE"; die "IDE: Download failed."; }
       ok "Downloaded $IDE_ARCHIVE"
     fi
 
     # Extract
     info "Extracting $IDE_ARCHIVE..."
-    extract_tar "$IDE_ARCHIVE" "${BUILD_DIR}/ide_extract"
+    extract_tar "$IDE_ARCHIVE" "${BUILD_DIR}/ide_extract" || die "IDE: Extraction failed."
 
     local SRC_DIR=""
     if [[ -d "${BUILD_DIR}/ide_extract/Antigravity IDE-arm64" ]]; then
@@ -1205,37 +1270,20 @@ install_ide() {
         info "Patching $ls_bin..."
         mv "$ls_path" "${ls_path}.va39"
         python3 "${BUILD_DIR}/va39_patch.py" "${ls_path}.va39" "${ls_path}.va39"
-        "$local_cc" -O2 -DPATCHED_BIN_NAME="\"$ls_bin.va39\"" -o "$ls_path" "${BUILD_DIR}/generic_helper.c"
-        chmod 755 "$ls_path"
+        "$local_cc" -O2 -DPATCHED_BIN_NAME="\"$ls_bin.va39\"" -o "$ls_path" "${BUILD_DIR}/ide_ls_helper.c"
+        chmod 755 "$ls_path" "${ls_path}.va39"
       fi
     done
 
-    # Wrap main IDE binary
-    local IDE_BIN="$TARGET_DIR/antigravity-ide"
-    if [[ -f "$IDE_BIN" ]]; then
-      info "Wrapping main IDE binary..."
-      mv "$IDE_BIN" "${IDE_BIN}.va39"
-      "$local_cc" -O2 -DPATCHED_BIN_NAME='"antigravity-ide.va39"' -o "$IDE_BIN" "${BUILD_DIR}/generic_helper.c"
-      chmod 755 "$IDE_BIN"
-    else
-      die "IDE: Main binary not found at $IDE_BIN."
-    fi
-
-    # Create launcher wrapper script at $WRAPPER
+    # Create launcher wrapper script (symlink or script)
     mkdir -p "$INSTALL_BIN_DIR"
-    cat > "$WRAPPER" << 'WEOF'
-#!/usr/bin/env bash
-set -euo pipefail
-APP_DIR="$HOME/.local/share/Antigravity IDE"
-if [[ -f "/data/data/com.termux/files/usr/etc/tls/cert.pem" ]]; then
-    export SSL_CERT_FILE="/data/data/com.termux/files/usr/etc/tls/cert.pem"
-elif [[ -f "/etc/ssl/certs/ca-certificates.crt" ]]; then
-    export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
-fi
-export LIBGL_ALWAYS_SOFTWARE=1 ELECTRON_ENABLE_LOGGING=1
-exec "$APP_DIR/antigravity-ide" --no-sandbox "$@"
-WEOF
-    chmod +x "$WRAPPER"
+    local IDE_SCRIPT="$TARGET_DIR/bin/antigravity-ide"
+    if [[ -f "$IDE_SCRIPT" ]]; then
+      info "Adjusting Electron initialization parameters for container isolation..."
+      sed -i 's|ELECTRON_RUN_AS_NODE=1 "$ELECTRON" "$CLI" "$@"|ELECTRON_RUN_AS_NODE=1 "$ELECTRON" "$CLI" --no-sandbox "$@"|g' "$IDE_SCRIPT"
+      chmod +x "$IDE_SCRIPT"
+    fi
+    ln -sf "$IDE_SCRIPT" "$WRAPPER"
 
     # Copy Icon if available
     mkdir -p "$ICONS_DIR"
@@ -1264,7 +1312,15 @@ Exec="$WRAPPER" --no-sandbox --new-window %F
 Icon=$ICON_DST
 IEOF
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPLICATIONS_DIR" 2>/dev/null || true
-  ); then
+  )
+  status=$?
+  set -e
+
+  if [[ $status -ne 0 ]]; then
+    if [[ -f "$IDE_ARCHIVE" ]]; then
+      warn "If the IDE archive is corrupted, please manually delete: $IDE_ARCHIVE"
+    fi
+
     # ROLLBACK:
     if [[ -n "$IDE_DIR_BAK" && -d "$IDE_DIR_BAK" ]]; then
       rm -rf "$TARGET_DIR"
@@ -1339,8 +1395,8 @@ QUEUE=()
 TOTAL_TASKS=${#QUEUE[@]}
 CURRENT_TASK=0
 
-# Compile shared compatibility layer if needed
-if [[ $RUN_DESKTOP_INSTALL -eq 1 || $RUN_IDE_INSTALL -eq 1 ]]; then
+# Compile shared compatibility layer if needed (IDE and/or Desktop)
+if [[ $RUN_IDE_INSTALL -eq 1 || $RUN_DESKTOP_INSTALL -eq 1 ]]; then
   info "Compiling mmap compatibility layer..."
   "$local_cc" -O2 -fPIC -shared -o "${BUILD_DIR}/libmmap_va39_fix.so" "${BUILD_DIR}/mmap_va39_fix.c" -ldl
 fi
