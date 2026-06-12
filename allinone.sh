@@ -1086,9 +1086,9 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
     return real_mmap(addr, length, prot, flags, fd, offset);
 }
 COF
-######### "$local_cc"
+######### 
 #########
-    gcc -O2 -fPIC -shared -o "$INTERPOSER_SO" "${BUILD_DIR}/desktop_mmap_va39_fix.c" -ldl
+    "$local_cc" -O2 -fPIC -shared -o "$INTERPOSER_SO" "${BUILD_DIR}/desktop_mmap_va39_fix.c" -ldl
 
     # 3. Surgical Patch for Language Server
     info "Applying surgical binary patch to language_server..."
