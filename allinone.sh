@@ -1086,7 +1086,9 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
     return real_mmap(addr, length, prot, flags, fd, offset);
 }
 COF
-    "$local_cc" -O2 -fPIC -shared -o "$INTERPOSER_SO" "${BUILD_DIR}/desktop_mmap_va39_fix.c" -ldl
+######### "$local_cc"
+#########
+    gcc -O2 -fPIC -shared -o "$INTERPOSER_SO" "${BUILD_DIR}/desktop_mmap_va39_fix.c" -ldl
 
     # 3. Surgical Patch for Language Server
     info "Applying surgical binary patch to language_server..."
@@ -1356,7 +1358,9 @@ install_ide() {
         info "Patching $ls_bin..."
         mv "$ls_path" "${ls_path}.va39"
         python3 "${BUILD_DIR}/va39_patch.py" "${ls_path}.va39" "${ls_path}.va39"
-        "$local_cc" -O2 -DPATCHED_BIN_NAME="\"$ls_bin.va39\"" -o "$ls_path" "${BUILD_DIR}/ide_ls_helper.c"
+##########
+########## "$local_cc"
+        gcc -O2 -DPATCHED_BIN_NAME="\"$ls_bin.va39\"" -o "$ls_path" "${BUILD_DIR}/ide_ls_helper.c"
         chmod 755 "$ls_path" "${ls_path}.va39"
       fi
     done
