@@ -177,6 +177,25 @@ ask_confirm() {
 # ── Optimization Helpers ──────────────────────────────────────────────────────
 DOWNLOAD_CACHE_DIR="$HOME/.cache/antigravity-installer"
 CURRENT_DOWNLOAD_PID=""
+DOWNLOADED_ARCHIVES=()
+
+get_terminal_columns() {
+  local cols
+  # Try stty first
+  cols=$(stty size 2>/dev/null | awk '{print $2}')
+  # Try tput cols without /dev/tty
+  [[ -z "$cols" ]] && cols=$(tput cols 2>/dev/null)
+  # Try tput cols with /dev/tty redirect
+  [[ -z "$cols" ]] && cols=$(tput cols </dev/tty 2>/dev/null)
+  # Try the COLUMNS env variable
+  [[ -z "$cols" ]] && cols="${COLUMNS:-}"
+  # Default to 80
+  if [[ -z "$cols" || ! "$cols" =~ ^[0-9]+$ || "$cols" -le 0 ]]; then
+    cols=80
+  fi
+  echo "$cols"
+}
+
 
 format_size() {
   local bytes="$1"
@@ -215,176 +234,353 @@ format_time() {
   fi
 }
 
+format_speed_apt() {
+  local bytes_per_sec="$1"
+  if (( bytes_per_sec >= 1048576 )); then
+    printf "%d MB/s" $((bytes_per_sec / 1048576))
+  elif (( bytes_per_sec >= 1024 )); then
+    printf "%d kB/s" $((bytes_per_sec / 1024))
+  else
+    printf "%d B/s" "$bytes_per_sec"
+  fi
+}
+
+format_time_apt() {
+  local sec="$1"
+  if (( sec < 0 )); then
+    echo "--"
+  elif (( sec >= 3600 )); then
+    local h=$((sec / 3600))
+    local m=$(( (sec % 3600) / 60 ))
+    local s=$((sec % 60))
+    printf "%dh %02dmin %02ds" $h $m $s
+  elif (( sec >= 60 )); then
+    local m=$((sec / 60))
+    local s=$((sec % 60))
+    printf "%02dmin %02ds" $m $s
+  else
+    printf "%02ds" $sec
+  fi
+}
+
+is_archive_valid() {
+  local archive="$1"
+  [[ -f "$archive" ]] || return 1
+  if command -v pigz &>/dev/null; then
+    tar -I pigz -tf "$archive" &>/dev/null
+  else
+    tar -tf "$archive" &>/dev/null
+  fi
+}
+
+is_gzip_magic_valid() {
+  local file="$1"
+  [[ -f "$file" ]] || return 1
+  local magic
+  magic=$(od -An -tx1 -N2 "$file" 2>/dev/null | tr -d '[:space:]')
+  [[ "$magic" == "1f8b" ]]
+}
+
+download_file_attempt() {
+  local url="$1"
+  local dest="$2"
+  
+  mkdir -p "$(dirname "$dest")"
+  
+  # Kill any existing leaked wget process downloading this file from a previous session
+  local pid_file="${DOWNLOAD_CACHE_DIR}/download.pid"
+  if [[ -f "$pid_file" ]]; then
+    local old_pid
+    old_pid=$(cat "$pid_file" 2>/dev/null || echo "")
+    if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
+      local proc_name=""
+      proc_name=$(cat "/proc/${old_pid}/comm" 2>/dev/null || cat "/proc/${old_pid}/status" 2>/dev/null | awk '/^Name:/ {print $2}' 2>/dev/null || echo "")
+      if [[ "$proc_name" == *"wget"* ]]; then
+        kill -9 "$old_pid" 2>/dev/null || true
+      fi
+    fi
+    rm -f "$pid_file"
+  fi
+
+  # Fetch remote content length using HTTP HEAD request following redirects
+  local final_headers
+  final_headers=$(wget --spider --server-response --tries=3 --timeout=5 "$url" 2>&1 || true)
+  
+  local status_code
+  status_code=$(echo "$final_headers" | grep -i 'HTTP/' | tail -n1 | awk '{print $2}')
+  
+  local total_size
+  total_size=$(echo "$final_headers" | awk '/[Cc]ontent-[Ll]ength:/ {print $2}' | tail -n1 | tr -d '\r' | xargs || echo "")
+
+  # Validate that total_size is numeric to prevent syntax/unbound variable errors in arithmetic expressions
+  if [[ -n "$total_size" && ! "$total_size" =~ ^[0-9]+$ ]]; then
+    total_size=""
+  fi
+  
+  local start_size=0
+  if [[ -f "$dest" ]]; then
+    local check_size
+    check_size=$(wc -c < "$dest" 2>/dev/null || echo 0)
+    check_size=${check_size//[[:space:]]/}
+    
+    if [[ -n "$total_size" && "$total_size" -gt 0 && "$check_size" -eq "$total_size" ]]; then
+      if [[ "$dest" == *.tar.gz ]]; then
+        if is_archive_valid "$dest"; then
+          info "File is already fully downloaded and verified."
+          return 0
+        else
+          warn "Local file is corrupted. Redownloading from scratch..."
+          rm -f "$dest"
+        fi
+      else
+        info "File is already fully downloaded."
+        return 0
+      fi
+    elif [[ -n "$total_size" && "$total_size" -gt 0 && "$check_size" -gt "$total_size" ]]; then
+      warn "Local file size ($check_size) exceeds remote size ($total_size). Redownloading from scratch..."
+      rm -f "$dest"
+    else
+      # Check if the partial file is valid (starts with gzip magic bytes)
+      if [[ "$dest" == *.tar.gz ]] && ! is_gzip_magic_valid "$dest"; then
+        warn "Local partial file is invalid or corrupted. Redownloading from scratch..."
+        rm -f "$dest"
+      else
+        start_size=$check_size
+      fi
+    fi
+  fi
+
+  # Start wget in background with continue option.
+  wget -q -c --tries=3 --waitretry=2 -O "$dest" "$url" &>/dev/null &
+  CURRENT_DOWNLOAD_PID=$!
+  echo "$CURRENT_DOWNLOAD_PID" > "$pid_file"
+  DOWNLOADED_ARCHIVES+=("$dest")
+  
+  # Poll file size and print progress
+  local start_time
+  start_time=$(date +%s)
+  local last_printed=-10
+  
+  local fill="█"
+  local empty="░"
+  
+  print_progress() {
+    local p_pct="$1"
+    local p_cur_size="$2"
+    local p_speed="$3"
+    
+    local cur_str
+    cur_str=$(format_size "$p_cur_size")
+    local total_str=""
+    [[ -n "$total_size" && "$total_size" -gt 0 ]] && total_str=$(format_size "$total_size")
+    
+    local speed_str=""
+    if (( p_speed > 0 )); then
+      speed_str=$(format_speed_apt "$p_speed")
+    fi
+    
+    local eta_str=""
+    if [[ -n "$total_size" && "$total_size" -gt 0 && p_speed -gt 0 ]]; then
+      local remaining=$((total_size - p_cur_size))
+      if (( remaining > 0 )); then
+        local eta=$((remaining / p_speed))
+        eta_str=$(format_time_apt "$eta")
+      else
+        eta_str=$(format_time_apt 0)
+      fi
+    fi
+    
+    if [[ -t 1 ]]; then
+      local cols
+      cols=$(get_terminal_columns)
+      # Subtract a safety margin of 2 columns to prevent wrapping
+      cols=$((cols - 2))
+      
+      local out_str=""
+      if [[ -n "$total_str" ]]; then
+        local prefix="  Downloading: ["
+        
+        # Build suffix content with speed and remaining time
+        local suff_details=""
+        [[ -n "$speed_str" ]] && suff_details="${suff_details} ${speed_str}"
+        [[ -n "$eta_str" ]] && suff_details="${suff_details} ${eta_str}"
+        
+        local suffix="] ${p_pct}% (${cur_str}/${total_str})${suff_details}"
+        
+        # Calculate available width for the progress bar
+        local fixed_len=$((${#prefix} + ${#suffix}))
+        local bar_width=$((cols - fixed_len))
+        
+        if (( bar_width >= 10 )); then
+          # Draw the dynamic progress bar matching the resized terminal width
+          local num_fill=$(( (p_pct * bar_width) / 100 ))
+          (( num_fill > bar_width )) && num_fill=$bar_width
+          local bar=""
+          for ((i=0; i<num_fill; i++)); do bar="${bar}${fill}"; done
+          for ((i=num_fill; i<bar_width; i++)); do bar="${bar}${empty}"; done
+          out_str="${prefix}${bar}${suffix}"
+        elif (( cols >= 45 )); then
+          # Terminal too narrow for the progress bar, show text percentage + sizes + speed/eta details
+          out_str="  Downloading: ${p_pct}% (${cur_str}/${total_str})${suff_details}"
+        else
+          # Extremely narrow terminal, show just percentage
+          out_str="  Downloading: ${p_pct}%"
+        fi
+      else
+        local elapsed_str
+        elapsed_str=$(format_time "$elapsed")
+        local out_str=""
+        if (( cols >= 60 )); then
+          out_str="  Downloading: ${cur_str} | ${speed_str} avg | elapsed ${elapsed_str}"
+        elif (( cols >= 45 )); then
+          out_str="  Downloading: ${cur_str} | ${speed_str} avg"
+        else
+          out_str="  Downloading: ${cur_str}"
+        fi
+      fi
+      printf "\r%s\033[K" "$out_str"
+    else
+      if [[ -n "$total_str" ]]; then
+        local suff_details=""
+        [[ -n "$speed_str" ]] && suff_details="${suff_details} ${speed_str}"
+        [[ -n "$eta_str" ]] && suff_details="${suff_details} ${eta_str}"
+        info "Downloading: ${p_pct}% (${cur_str}/${total_str})${suff_details}"
+      else
+        local suff_details=""
+        [[ -n "$speed_str" ]] && suff_details="${suff_details} ${speed_str}"
+        info "Downloading: ${cur_str}${suff_details}"
+      fi
+    fi
+  }
+
+  while kill -0 "$CURRENT_DOWNLOAD_PID" 2>/dev/null; do
+    sleep 1
+    local current_size=0
+    if [[ -f "$dest" ]]; then
+      current_size=$(wc -c < "$dest" 2>/dev/null || echo 0)
+      current_size=${current_size//[[:space:]]/}
+    fi
+    
+    if [[ -n "$total_size" && "$total_size" -gt 0 ]]; then
+      if (( current_size > total_size )); then
+        warn "Downloaded size ($current_size) exceeded total size ($total_size). The file is likely corrupted."
+        kill -9 "$CURRENT_DOWNLOAD_PID" 2>/dev/null || true
+        wait "$CURRENT_DOWNLOAD_PID" 2>/dev/null || true
+        # Do not delete the file here either - let it be, but return error.
+        return 1
+      fi
+    fi
+    
+    local pct=0
+    if [[ -n "$total_size" && "$total_size" -gt 0 ]]; then
+      pct=$(( (current_size * 100) / total_size ))
+    fi
+    
+    local downloaded=$((current_size - start_size))
+    local current_time
+    current_time=$(date +%s)
+    local elapsed=$((current_time - start_time))
+    
+    local speed=0
+    if (( elapsed > 0 )); then
+      speed=$((downloaded / elapsed))
+    fi
+    
+    # Check if we should update progress: only update 10 times (every 10%)
+    local should_update=0
+    if [[ -n "$total_size" && "$total_size" -gt 0 ]]; then
+      if (( pct >= last_printed + 10 || (pct == 100 && last_printed < 100) )); then
+        should_update=1
+        last_printed=$(( (pct / 10) * 10 ))
+      fi
+    else
+      if (( elapsed >= last_printed + 5 )); then
+        should_update=1
+        last_printed=$elapsed
+      fi
+    fi
+    
+    if [[ "$should_update" -eq 1 ]]; then
+      print_progress "$pct" "$current_size" "$speed"
+    fi
+  done
+  
+  # Wait for wget to exit and get status
+  wait "$CURRENT_DOWNLOAD_PID"
+  local wget_status=$?
+  CURRENT_DOWNLOAD_PID=""
+  rm -f "$pid_file"
+  
+  # Print final progress if successful
+  if [[ $wget_status -eq 0 && -f "$dest" ]]; then
+    local current_size=0
+    if [[ -f "$dest" ]]; then
+      current_size=$(wc -c < "$dest" 2>/dev/null || echo 0)
+      current_size=${current_size//[[:space:]]/}
+    fi
+    
+    local pct=100
+    if [[ -n "$total_size" && "$total_size" -gt 0 ]]; then
+      pct=$(( (current_size * 100) / total_size ))
+    fi
+    
+    local current_time
+    current_time=$(date +%s)
+    local elapsed=$((current_time - start_time))
+    
+    local speed=0
+    if (( elapsed > 0 )); then
+      speed=$(( (current_size - start_size) / elapsed ))
+    fi
+    
+    if [[ -z "$total_size" || "$total_size" -le 0 || "$last_printed" -ne 100 ]]; then
+      print_progress "$pct" "$current_size" "$speed"
+    fi
+  fi
+
+  # Move to the next line if stdout is interactive
+  if [[ -t 1 ]]; then
+    printf "\n"
+  fi
+  
+  # Check for errors
+  if [[ $wget_status -ne 0 ]]; then
+    # Do NOT delete the partial file, so it can be resumed next time
+    return $wget_status
+  fi
+  
+  return 0
+}
+
 download_file() {
   local url="$1"
   local dest="${2:-}"
-  if [[ -n "$dest" ]]; then
-    mkdir -p "$(dirname "$dest")"
-    
-    # 1. Fetch remote content length first using HTTP HEAD request
-    local total_size
-    total_size=$(curl -sI -m 5 "$url" | grep -i '^Content-Length:' | awk '{print $2}' | tr -d '\r' | xargs || echo "")
-    
-    # If the file already exists and matches total_size, it's already fully downloaded.
-    local start_size
-    start_size=$(wc -c < "$dest" 2>/dev/null || echo 0)
-    start_size=${start_size//[[:space:]]/}
-    
-    if [[ -n "$total_size" && "$start_size" -eq "$total_size" ]]; then
-      info "File is already fully downloaded."
-      return 0
-    fi
+  if [[ -z "$dest" ]]; then
+    wget -q -O - "$url"
+    return $?
+  fi
 
-    # 2. Start curl in background with resume flag (-C -)
-    curl -fsSL -C - --retry 3 --retry-connrefused --retry-delay 2 -o "$dest" "$url" &
-    CURRENT_DOWNLOAD_PID=$!
-    
-    # 3. Poll file size and print progress
-    local start_time
-    start_time=$(date +%s)
-    local last_printed=0
-    
-    local fill="█"
-    local empty="░"
-    
-    while kill -0 "$CURRENT_DOWNLOAD_PID" 2>/dev/null; do
-      sleep 1
-      local current_size
-      current_size=$(wc -c < "$dest" 2>/dev/null || echo 0)
-      current_size=${current_size//[[:space:]]/}
-      
-      local pct=0
-      if [[ -n "$total_size" && "$total_size" -gt 0 ]]; then
-        pct=$(( (current_size * 100) / total_size ))
-      fi
-      
-      local downloaded=$((current_size - start_size))
-      local current_time
-      current_time=$(date +%s)
-      local elapsed=$((current_time - start_time))
-      
-      local speed=0
-      if (( elapsed > 0 )); then
-        speed=$((downloaded / elapsed))
-      fi
-      
-      local cur_str
-      cur_str=$(format_size "$current_size")
-      local speed_str
-      speed_str=$(format_speed "$speed")
-      
-      if [[ -t 1 ]]; then
-        # Interactive mode: update every second with carriage return and responsive layout
-        local cols
-        cols=$(tput cols </dev/tty 2>/dev/null || echo 80)
-        
-        if [[ -n "$total_size" && "$total_size" -gt 0 ]]; then
-          local total_str
-          total_str=$(format_size "$total_size")
-          
-          local eta_str="--"
-          if (( speed > 0 )); then
-            local remaining=$((total_size - current_size))
-            if (( remaining > 0 )); then
-              local eta=$((remaining / speed))
-              eta_str=$(format_time "$eta")
-            fi
-          fi
-          
-          local out_str=""
-          if (( cols >= 85 )); then
-            # Full layout (width 20 bar, speed, eta)
-            local bar_width=20
-            local num_fill=$(( (pct * bar_width) / 100 ))
-            (( num_fill > bar_width )) && num_fill=$bar_width
-            local bar=""
-            for ((i=0; i<num_fill; i++)); do bar="${bar}${fill}"; done
-            for ((i=num_fill; i<bar_width; i++)); do bar="${bar}${empty}"; done
-            out_str="  Downloading: [${bar}] ${pct}% (${cur_str}/${total_str}) | ${speed_str} avg | ${eta_str} left"
-          elif (( cols >= 70 )); then
-            # Omit ETA (width 15 bar, speed)
-            local bar_width=15
-            local num_fill=$(( (pct * bar_width) / 100 ))
-            (( num_fill > bar_width )) && num_fill=$bar_width
-            local bar=""
-            for ((i=0; i<num_fill; i++)); do bar="${bar}${fill}"; done
-            for ((i=num_fill; i<bar_width; i++)); do bar="${bar}${empty}"; done
-            out_str="  Downloading: [${bar}] ${pct}% (${cur_str}/${total_str}) | ${speed_str} avg"
-          elif (( cols >= 55 )); then
-            # Omit speed and ETA (width 10 bar)
-            local bar_width=10
-            local num_fill=$(( (pct * bar_width) / 100 ))
-            (( num_fill > bar_width )) && num_fill=$bar_width
-            local bar=""
-            for ((i=0; i<num_fill; i++)); do bar="${bar}${fill}"; done
-            for ((i=num_fill; i<bar_width; i++)); do bar="${bar}${empty}"; done
-            out_str="  Downloading: [${bar}] ${pct}% (${cur_str}/${total_str})"
-          elif (( cols >= 40 )); then
-            # No bar, show pct and size
-            out_str="  Downloading: ${pct}% (${cur_str}/${total_str})"
-          else
-            # Minimalist
-            out_str="  Downloading: ${pct}%"
-          fi
-          printf "\r%s\033[K" "$out_str"
+  local max_attempts=3
+  local attempt=1
+  while (( attempt <= max_attempts )); do
+    if download_file_attempt "$url" "$dest"; then
+      if [[ "$dest" == *.tar.gz ]]; then
+        if is_archive_valid "$dest"; then
+          return 0
         else
-          # Unknown size
-          local elapsed_str
-          elapsed_str=$(format_time "$elapsed")
-          local out_str=""
-          if (( cols >= 60 )); then
-            out_str="  Downloading: ${cur_str} | ${speed_str} avg | elapsed ${elapsed_str}"
-          elif (( cols >= 45 )); then
-            out_str="  Downloading: ${cur_str} | ${speed_str} avg"
-          else
-            out_str="  Downloading: ${cur_str}"
-          fi
-          printf "\r%s\033[K" "$out_str"
+          warn "Archive verification failed for $dest. Retrying download (attempt $((attempt + 1))/$max_attempts)..."
+          rm -f "$dest"
         fi
       else
-        # Non-interactive mode: print simple logs every 10% (or every 5 seconds if unknown size)
-        if [[ -n "$total_size" && "$total_size" -gt 0 ]]; then
-          if (( pct >= last_printed + 10 || (pct == 100 && last_printed < 100) )); then
-            last_printed=$(( (pct / 10) * 10 ))
-            local total_str
-            total_str=$(format_size "$total_size")
-            info "Downloading: ${last_printed}% (${cur_str}/${total_str}) | ${speed_str} avg"
-          fi
-        else
-          if (( elapsed >= last_printed + 5 )); then
-            last_printed=$elapsed
-            info "Downloading: ${cur_str} | ${speed_str} avg"
-          fi
-        fi
+        return 0
       fi
-    done
-    
-    # 4. Wait for curl to exit and get status
-    wait "$CURRENT_DOWNLOAD_PID"
-    local curl_status=$?
-    CURRENT_DOWNLOAD_PID=""
-    
-    # Move to the next line if stdout is interactive
-    if [[ -t 1 ]]; then
-      printf "\n"
+    else
+      warn "Download attempt $attempt failed. Retrying (attempt $((attempt + 1))/$max_attempts)..."
     fi
-    
-    # Check for 416 Range Not Satisfiable edge case (e.g. download finished right before loop)
-    if [[ $curl_status -ne 0 ]]; then
-      if [[ "$curl_status" -eq 22 || "$curl_status" -eq 33 ]]; then
-        local check_size
-        check_size=$(wc -c < "$dest" 2>/dev/null || echo 0)
-        check_size=${check_size//[[:space:]]/}
-        if [[ -n "$total_size" && "$check_size" -eq "$total_size" ]]; then
-          return 0
-        fi
-      fi
-      warn "Download failed with exit code $curl_status"
-      return $curl_status
-    fi
-  else
-    curl -fsSL --retry 3 --retry-connrefused --retry-delay 2 "$url"
-  fi
+    attempt=$((attempt + 1))
+  done
+  err "Failed to download $url after $max_attempts attempts."
+  return 1
 }
 
 extract_tar() {
@@ -458,9 +654,15 @@ cleanup() {
   fi
   printf "\033[?25h"
   
-  # Kill active download process if interrupted
-  if [[ -n "${CURRENT_DOWNLOAD_PID:-}" ]]; then
-    kill "$CURRENT_DOWNLOAD_PID" 2>/dev/null || true
+  # Kill active download process if interrupted (read from pid file to handle subshell scopes)
+  local pid_file="${DOWNLOAD_CACHE_DIR}/download.pid"
+  if [[ -f "$pid_file" ]]; then
+    local act_pid
+    act_pid=$(cat "$pid_file" 2>/dev/null || echo "")
+    if [[ -n "$act_pid" ]]; then
+      kill -9 "$act_pid" 2>/dev/null || true
+    fi
+    rm -f "$pid_file" 2>/dev/null || true
   fi
 
   # Clean up temporary files / build dir
@@ -484,13 +686,17 @@ cleanup() {
     rollback_file "$IDE_BIN_BAK" "$INSTALL_BIN_DIR/antigravity-ide" "$IDE_BIN_CREATED_FRESH"
     rollback_file "$IDE_DESKTOP_BAK" "$HOME/.local/share/applications/antigravity-ide.desktop" "$IDE_DESKTOP_CREATED_FRESH"
     rollback_file "$IDE_ICON_BAK" "$HOME/.local/share/icons/antigravity-ide.png" "$IDE_ICON_CREATED_FRESH"
+
+    # Keep the partially/fully downloaded archives on failure to make them resumable in the next run
+    :
   else
-    # Success: delete all backups and downloaded archives in cache
+    # Success: delete all backups and only archives that were downloaded in this run
     rm -f "$CLI_AGY_BAK" "$CLI_AGY_VA39_BAK" "$DESKTOP_WRAPPER_BAK" "$DESKTOP_FILE_BAK" "$DESKTOP_ICON_BAK" "$IDE_BIN_BAK" "$IDE_DESKTOP_BAK" "$IDE_ICON_BAK" 2>/dev/null || true
     rm -rf "$DESKTOP_DIR_BAK" "$IDE_DIR_BAK" 2>/dev/null || true
-    rm -f "${DOWNLOAD_CACHE_DIR}/cli_upstream_v"*.tar.gz 2>/dev/null || true
-    rm -f "${DOWNLOAD_CACHE_DIR}/desktop_v"*.tar.gz 2>/dev/null || true
-    rm -f "${DOWNLOAD_CACHE_DIR}/ide_v"*.tar.gz 2>/dev/null || true
+    
+    for archive in "${DOWNLOADED_ARCHIVES[@]}"; do
+      rm -f "$archive" 2>/dev/null || true
+    done
   fi
 }
 trap cleanup EXIT
@@ -694,45 +900,65 @@ detect_compiler() {
 }
 
 check_and_install_dependencies() {
+  local deps=()
+  if [[ "$ENV_TYPE" == "termux" ]]; then
+    deps=("python" "tar" "wget" "jq" "clang" "glibc-repo" "glibc")
+  else
+    # Base dependencies needed by everything (including CLI on PRoot/Linux)
+    deps=("python3" "tar" "wget" "jq")
+    # Compiler (clang) only needed if IDE or Desktop is selected
+    if [[ $RUN_IDE_INSTALL -eq 1 || $RUN_DESKTOP_INSTALL -eq 1 ]]; then
+      deps+=("clang")
+    fi
+  fi
+  
   if [[ "$ENV_TYPE" == "termux" ]]; then
     command -v pkg >/dev/null 2>&1 || die "pkg is required but not found to install dependencies"
-
-    local to_install=("python" "tar" "curl" "jq" "clang" "glibc-repo" "glibc")
-
-    warn "Installing/reinstalling dependencies: ${B}${to_install[*]}${N}"
+    
+    warn "Forcing installation/update of dependencies: ${B}${deps[*]}${N}"
     if ask_confirm "Proceed with installation?"; then
-      info "Installing requirements: ${to_install[*]}..."
-      pkg install -y glibc-repo &>/dev/null || true
-      pkg install -y "${to_install[@]}" &>/dev/null || die "Failed to install dependencies: ${to_install[*]}"
+      info "Installing requirements: ${deps[*]}..."
+      if [[ " ${deps[*]} " == *" glibc-repo "* ]]; then
+        pkg install -y glibc-repo &>/dev/null || true
+      fi
+      pkg install -y "${deps[@]}" &>/dev/null || die "Failed to install dependencies: ${deps[*]}"
     else
       die "Installation of dependencies is required."
     fi
   else
-    local apt_packages=("python3" "tar" "curl" "jq" "clang")
-    local apk_packages=("python3" "tar" "curl" "jq" "clang")
-    local pacman_packages=("python" "tar" "curl" "jq" "clang")
-    local dnf_packages=("python3" "tar" "curl" "jq" "clang")
+    local target_deps=()
+    for d in "${deps[@]}"; do
+      if [[ "$d" == "python3" ]]; then
+        if command -v pacman &>/dev/null; then
+          target_deps+=("python")
+        else
+          target_deps+=("python3")
+        fi
+      else
+        target_deps+=("$d")
+      fi
+    done
 
     # Check privilege helper (use sudo if available and we're not root)
     local helper=""
     [[ "$EUID" -ne 0 ]] && command -v sudo &>/dev/null && helper="sudo "
     local show_cmd="" run_cmd=""
     if command -v apt-get &>/dev/null; then
-      show_cmd="${helper}apt-get update && ${helper}apt-get install -y ${apt_packages[*]}"
-      run_cmd="${helper}DEBIAN_FRONTEND=noninteractive apt-get update &>/dev/null && ${helper}DEBIAN_FRONTEND=noninteractive apt-get install -y ${apt_packages[*]} &>/dev/null"
+      show_cmd="${helper}apt-get update && ${helper}apt-get install -y ${target_deps[*]}"
+      run_cmd="${helper}DEBIAN_FRONTEND=noninteractive apt-get update && ${helper}DEBIAN_FRONTEND=noninteractive apt-get install -y ${target_deps[*]}"
     elif command -v apk &>/dev/null; then
-      show_cmd="${helper}apk add ${apk_packages[*]}"
-      run_cmd="${helper}apk add ${apk_packages[*]} &>/dev/null"
+      show_cmd="${helper}apk add ${target_deps[*]}"
+      run_cmd="${helper}apk add ${target_deps[*]}"
     elif command -v pacman &>/dev/null; then
-      show_cmd="${helper}pacman -Sy --noconfirm ${pacman_packages[*]}"
-      run_cmd="${helper}pacman -Sy --noconfirm ${pacman_packages[*]} &>/dev/null"
+      show_cmd="${helper}pacman -Sy --noconfirm ${target_deps[*]}"
+      run_cmd="${helper}pacman -Sy --noconfirm ${target_deps[*]}"
     elif command -v dnf &>/dev/null; then
-      show_cmd="${helper}dnf install -y ${dnf_packages[*]}"
-      run_cmd="${helper}dnf install -y ${dnf_packages[*]} &>/dev/null"
+      show_cmd="${helper}dnf install -y ${target_deps[*]}"
+      run_cmd="${helper}dnf install -y ${target_deps[*]}"
     fi
-    [[ -z "$show_cmd" ]] && die "No supported package manager found. Please install manually: python3, tar, curl, jq, clang"
+    [[ -z "$show_cmd" ]] && die "No supported package manager found. Please install manually: ${target_deps[*]}"
     
-    warn "Installing/reinstalling dependencies..."
+    warn "Forcing installation/update of dependencies..."
     printf '  %b\n\n' "${D}$ ${N}${show_cmd}"
     printf '  %bEnter to install, c to cancel: ' "${C}❯${N} "
     local ans=""
@@ -742,7 +968,7 @@ check_and_install_dependencies() {
     fi
     if [[ -n "$helper" ]]; then sudo -v || die "Authentication failed."; fi
     info "Installing requirements..."
-    eval "$run_cmd" || die "Automatic installation of dependencies failed."
+    eval "$run_cmd" &>/dev/null || die "Automatic installation of dependencies failed."
   fi
 }
 
@@ -1022,8 +1248,8 @@ install_cli() {
     manifest=$(download_file "$MANIFEST_URL" "" || echo "")
     [[ -z "$manifest" ]] && die "CLI: Failed to query manifest from $MANIFEST_URL"
 
-    # Consolidate manifest parsing into a single jq call
-    { read -r latest_version; read -r download_url; } < <(echo "$manifest" | jq -r '.version, .url')
+    latest_version=$(echo "$manifest" | jq -r '.version')
+    download_url=$(echo "$manifest" | jq -r '.url')
     info "Latest version: v$latest_version"
 
     # Remove old versions from cache
@@ -1782,7 +2008,15 @@ TOTAL_TASKS=${#QUEUE[@]}
 CURRENT_TASK=0
 
 # Compile shared compatibility layer if needed
-if [[ $TOTAL_TASKS -gt 0 ]]; then
+NEED_MMAP_COMPILATION=0
+if [[ $RUN_DESKTOP_INSTALL -eq 1 || $RUN_IDE_INSTALL -eq 1 ]]; then
+  NEED_MMAP_COMPILATION=1
+fi
+if [[ $RUN_CLI_INSTALL -eq 1 && "$ENV_TYPE" == "termux" ]]; then
+  NEED_MMAP_COMPILATION=1
+fi
+
+if [[ $NEED_MMAP_COMPILATION -eq 1 && $TOTAL_TASKS -gt 0 ]]; then
   info "Compiling mmap compatibility layer..."
   "$local_cc" -O2 -fPIC -shared -o "${BUILD_DIR}/libmmap_va39_fix.so" "${BUILD_DIR}/mmap_va39_fix.c" -ldl
 fi
