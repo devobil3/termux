@@ -2,6 +2,7 @@
 # Antigravity - All-in-One Termux Installer
 # Installs CLI, IDE, and/or Antigravity 2.0 Desktop in a single run.
 set -Eeuo pipefail
+MAIN_PID="$$"
 
 # ── Environment Detection ─────────────────────────────────────────────────────
 tp=$(awk '/^TracerPid:/ {print $2}' /proc/self/status 2>/dev/null || echo 0)
@@ -24,12 +25,17 @@ if [[ "$ENV_TYPE" == "unknown" ]]; then
   if [[ "$(uname -s)" == "Linux" ]]; then
     ENV_TYPE="linux"
   else
-    printf "  \033[31m✗\033[0m This script requires Linux (native Termux, PRoot, or generic Linux).\n" >&2
+    printf "  \033[31m✖\033[0m This script requires Linux (native Termux, PRoot, or generic Linux).\n" >&2
     exit 1
   fi
 fi
 
-INSTALL_BIN_DIR="$HOME/.local/bin"
+if [[ "$ENV_TYPE" == "termux" ]]; then
+  TERMUX_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+  INSTALL_BIN_DIR="${TERMUX_PREFIX}/bin"
+else
+  INSTALL_BIN_DIR="$HOME/.local/bin"
+fi
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
@@ -37,33 +43,345 @@ if [[ -t 1 ]]; then
 else
   B=""  D=""  G=""  R=""  C=""  Y=""  W=""  N=""
 fi
-BOLD="$B" DIM="$D" GREEN="$G" RED="$R" CYAN="$C" YELLOW="$Y" RESET="$N"
+
+# ── Wrapped Printer Helper ────────────────────────────────────────────────────
+wrap_print() {
+  local prefix="$1"
+  local indent="$2"
+  shift 2
+  local text="$*"
+  local esc=$'\e'
+
+  local cols
+  cols=$(tput cols </dev/tty 2>/dev/null || echo 60)
+  
+  local pad_len=4
+  local max_w=$((cols - pad_len))
+  if [[ $max_w -lt 30 ]]; then
+    max_w=30
+  fi
+
+  echo "$text" | awk -v w="$max_w" -v pref="$prefix" -v ind="$indent" -v esc="$esc" '
+    function strip_ansi(str) {
+      gsub(esc "\\[[0-9;]*[a-zA-Z]", "", str)
+      return str
+    }
+    {
+      words_count = split($0, words, " ")
+      line = ""
+      line_clean = ""
+      first = 1
+      for (i = 1; i <= words_count; i++) {
+        word = words[i]
+        word_clean = strip_ansi(word)
+        
+        if (first) {
+          line = word
+          line_clean = word_clean
+          first = 0
+        } else {
+          test_line_clean = line_clean " " word_clean
+          if (length(test_line_clean) <= w) {
+            line = line " " word
+            line_clean = test_line_clean
+          } else {
+            if (pref != "") {
+              printf "%s%s\n", pref, line
+              pref = ""
+            } else {
+              printf "%s%s\n", ind, line
+            }
+            line = word
+            line_clean = word_clean
+          }
+        }
+      }
+      if (line != "") {
+        if (pref != "") {
+          printf "%s%s\n", pref, line
+        } else {
+          printf "%s%s\n", ind, line
+        }
+      }
+    }
+  '
+}
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-info()  { printf '  %b\n' "${D}⠶${N} ${D}$*${N}"; }
-ok()    { printf '  %b\n' "${G}✓${N} $*"; }
-warn()  { printf '  %b\n' "${Y}!${N} $*"; }
+info()  { wrap_print "  ${D}⠶${N} " "    " "${D}$*${N}"; }
+ok()    { wrap_print "  ${G}✔${N} " "    " "$*"; }
+warn()  { wrap_print "  ${Y}⚠${N} " "    " "$*"; }
+err()   { wrap_print "  ${R}✖${N} " "    " "$*"; }
 die() {
   {
     printf "\033[?25h"
     printf '\n'
     if [[ $# -gt 0 ]]; then
-      printf '  %b\n' "${R}✗${N} $*"
+      wrap_print "  ${R}✖${N} " "    " "$*"
     else
-      printf '  %b\n' "${R}✗${N} Installation failed or was cancelled."
+      wrap_print "  ${R}✖${N} " "    " "Installation failed or was cancelled."
     fi
     printf '\n'
   } >&2
   exit 1
 }
-sep() { printf '  %b\n' "${D}─────────────────────────────────${N}"; }
+sep() {
+  local cols
+  cols=$(tput cols </dev/tty 2>/dev/null || echo 60)
+  local w=$((cols - 4))
+  if [[ $w -lt 20 ]]; then w=20; fi
+  if [[ $w -gt 76 ]]; then w=76; fi
+  awk -v len="$w" -v style="${D}" -v rst="${N}" 'BEGIN {
+    printf "  %s", style
+    for (i = 1; i <= len; i++) printf "─"
+    printf "%s\n", rst
+  }'
+}
+
+safe_read() {
+  local _sr_status
+  local _sr_winch
+  _sr_winch=$((128 + $(kill -l WINCH 2>/dev/null || echo 28)))
+  while true; do
+    read "$@"
+    _sr_status=$?
+    if [[ $_sr_status -eq $_sr_winch ]]; then
+      continue
+    fi
+    return $_sr_status
+  done
+}
+
+ask_confirm() {
+  local msg="$1"
+  local default="${2:-y}" # y or n
+  local choices="[Y/n]"
+  [[ "$default" == "n" ]] && choices="[y/N]"
+  
+  printf '  %b%s %b' "${C}❯${N} ${B}${msg}${N} " "${choices}"
+  
+  local ans=""
+  safe_read -r ans < /dev/tty || ans="$default"
+  if [[ -z "$ans" ]]; then
+    ans="$default"
+  fi
+  # Normalize to lowercase
+  ans="${ans,,}"
+  if [[ "$ans" =~ ^(y|yes)$ ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
 
 # ── Optimization Helpers ──────────────────────────────────────────────────────
+DOWNLOAD_CACHE_DIR="$HOME/.cache/antigravity-installer"
+CURRENT_DOWNLOAD_PID=""
+
+format_size() {
+  local bytes="$1"
+  if (( bytes >= 1073741824 )); then
+    printf "%.1fG" "$(awk -v b="$bytes" 'BEGIN {print b / 1073741824}')"
+  elif (( bytes >= 1048576 )); then
+    printf "%.1fM" "$(awk -v b="$bytes" 'BEGIN {print b / 1048576}')"
+  elif (( bytes >= 1024 )); then
+    printf "%.1fk" "$(awk -v b="$bytes" 'BEGIN {print b / 1024}')"
+  else
+    printf "%dB" "$bytes"
+  fi
+}
+
+format_speed() {
+  local bytes_per_sec="$1"
+  if (( bytes_per_sec >= 1048576 )); then
+    printf "%.1f MB/s" "$(awk -v b="$bytes_per_sec" 'BEGIN {print b / 1048576}')"
+  elif (( bytes_per_sec >= 1024 )); then
+    printf "%.1f kB/s" "$(awk -v b="$bytes_per_sec" 'BEGIN {print b / 1024}')"
+  else
+    printf "%d B/s" "$bytes_per_sec"
+  fi
+}
+
+format_time() {
+  local sec="$1"
+  if (( sec < 0 )); then
+    echo "--"
+  elif (( sec >= 3600 )); then
+    printf "%dh%dm%ds" $((sec / 3600)) $(( (sec % 3600) / 60 )) $((sec % 60))
+  elif (( sec >= 60 )); then
+    printf "%dm%ds" $((sec / 60)) $((sec % 60))
+  else
+    printf "%ds" "$sec"
+  fi
+}
+
 download_file() {
   local url="$1"
   local dest="${2:-}"
   if [[ -n "$dest" ]]; then
-    curl -fsSL --retry 3 --retry-connrefused --retry-delay 2 -o "$dest" "$url"
+    mkdir -p "$(dirname "$dest")"
+    
+    # 1. Fetch remote content length first using HTTP HEAD request
+    local total_size
+    total_size=$(curl -sI -m 5 "$url" | grep -i '^Content-Length:' | awk '{print $2}' | tr -d '\r' | xargs || echo "")
+    
+    # If the file already exists and matches total_size, it's already fully downloaded.
+    local start_size
+    start_size=$(wc -c < "$dest" 2>/dev/null || echo 0)
+    start_size=${start_size//[[:space:]]/}
+    
+    if [[ -n "$total_size" && "$start_size" -eq "$total_size" ]]; then
+      info "File is already fully downloaded."
+      return 0
+    fi
+
+    # 2. Start curl in background with resume flag (-C -)
+    curl -fsSL -C - --retry 3 --retry-connrefused --retry-delay 2 -o "$dest" "$url" &
+    CURRENT_DOWNLOAD_PID=$!
+    
+    # 3. Poll file size and print progress
+    local start_time
+    start_time=$(date +%s)
+    local last_printed=0
+    
+    local fill="█"
+    local empty="░"
+    
+    while kill -0 "$CURRENT_DOWNLOAD_PID" 2>/dev/null; do
+      sleep 1
+      local current_size
+      current_size=$(wc -c < "$dest" 2>/dev/null || echo 0)
+      current_size=${current_size//[[:space:]]/}
+      
+      local pct=0
+      if [[ -n "$total_size" && "$total_size" -gt 0 ]]; then
+        pct=$(( (current_size * 100) / total_size ))
+      fi
+      
+      local downloaded=$((current_size - start_size))
+      local current_time
+      current_time=$(date +%s)
+      local elapsed=$((current_time - start_time))
+      
+      local speed=0
+      if (( elapsed > 0 )); then
+        speed=$((downloaded / elapsed))
+      fi
+      
+      local cur_str
+      cur_str=$(format_size "$current_size")
+      local speed_str
+      speed_str=$(format_speed "$speed")
+      
+      if [[ -t 1 ]]; then
+        # Interactive mode: update every second with carriage return and responsive layout
+        local cols
+        cols=$(tput cols </dev/tty 2>/dev/null || echo 80)
+        
+        if [[ -n "$total_size" && "$total_size" -gt 0 ]]; then
+          local total_str
+          total_str=$(format_size "$total_size")
+          
+          local eta_str="--"
+          if (( speed > 0 )); then
+            local remaining=$((total_size - current_size))
+            if (( remaining > 0 )); then
+              local eta=$((remaining / speed))
+              eta_str=$(format_time "$eta")
+            fi
+          fi
+          
+          local out_str=""
+          if (( cols >= 85 )); then
+            # Full layout (width 20 bar, speed, eta)
+            local bar_width=20
+            local num_fill=$(( (pct * bar_width) / 100 ))
+            (( num_fill > bar_width )) && num_fill=$bar_width
+            local bar=""
+            for ((i=0; i<num_fill; i++)); do bar="${bar}${fill}"; done
+            for ((i=num_fill; i<bar_width; i++)); do bar="${bar}${empty}"; done
+            out_str="  Downloading: [${bar}] ${pct}% (${cur_str}/${total_str}) | ${speed_str} avg | ${eta_str} left"
+          elif (( cols >= 70 )); then
+            # Omit ETA (width 15 bar, speed)
+            local bar_width=15
+            local num_fill=$(( (pct * bar_width) / 100 ))
+            (( num_fill > bar_width )) && num_fill=$bar_width
+            local bar=""
+            for ((i=0; i<num_fill; i++)); do bar="${bar}${fill}"; done
+            for ((i=num_fill; i<bar_width; i++)); do bar="${bar}${empty}"; done
+            out_str="  Downloading: [${bar}] ${pct}% (${cur_str}/${total_str}) | ${speed_str} avg"
+          elif (( cols >= 55 )); then
+            # Omit speed and ETA (width 10 bar)
+            local bar_width=10
+            local num_fill=$(( (pct * bar_width) / 100 ))
+            (( num_fill > bar_width )) && num_fill=$bar_width
+            local bar=""
+            for ((i=0; i<num_fill; i++)); do bar="${bar}${fill}"; done
+            for ((i=num_fill; i<bar_width; i++)); do bar="${bar}${empty}"; done
+            out_str="  Downloading: [${bar}] ${pct}% (${cur_str}/${total_str})"
+          elif (( cols >= 40 )); then
+            # No bar, show pct and size
+            out_str="  Downloading: ${pct}% (${cur_str}/${total_str})"
+          else
+            # Minimalist
+            out_str="  Downloading: ${pct}%"
+          fi
+          printf "\r%s\033[K" "$out_str"
+        else
+          # Unknown size
+          local elapsed_str
+          elapsed_str=$(format_time "$elapsed")
+          local out_str=""
+          if (( cols >= 60 )); then
+            out_str="  Downloading: ${cur_str} | ${speed_str} avg | elapsed ${elapsed_str}"
+          elif (( cols >= 45 )); then
+            out_str="  Downloading: ${cur_str} | ${speed_str} avg"
+          else
+            out_str="  Downloading: ${cur_str}"
+          fi
+          printf "\r%s\033[K" "$out_str"
+        fi
+      else
+        # Non-interactive mode: print simple logs every 10% (or every 5 seconds if unknown size)
+        if [[ -n "$total_size" && "$total_size" -gt 0 ]]; then
+          if (( pct >= last_printed + 10 || (pct == 100 && last_printed < 100) )); then
+            last_printed=$(( (pct / 10) * 10 ))
+            local total_str
+            total_str=$(format_size "$total_size")
+            info "Downloading: ${last_printed}% (${cur_str}/${total_str}) | ${speed_str} avg"
+          fi
+        else
+          if (( elapsed >= last_printed + 5 )); then
+            last_printed=$elapsed
+            info "Downloading: ${cur_str} | ${speed_str} avg"
+          fi
+        fi
+      fi
+    done
+    
+    # 4. Wait for curl to exit and get status
+    wait "$CURRENT_DOWNLOAD_PID"
+    local curl_status=$?
+    CURRENT_DOWNLOAD_PID=""
+    
+    # Move to the next line if stdout is interactive
+    if [[ -t 1 ]]; then
+      printf "\n"
+    fi
+    
+    # Check for 416 Range Not Satisfiable edge case (e.g. download finished right before loop)
+    if [[ $curl_status -ne 0 ]]; then
+      if [[ "$curl_status" -eq 22 || "$curl_status" -eq 33 ]]; then
+        local check_size
+        check_size=$(wc -c < "$dest" 2>/dev/null || echo 0)
+        check_size=${check_size//[[:space:]]/}
+        if [[ -n "$total_size" && "$check_size" -eq "$total_size" ]]; then
+          return 0
+        fi
+      fi
+      warn "Download failed with exit code $curl_status"
+      return $curl_status
+    fi
   else
     curl -fsSL --retry 3 --retry-connrefused --retry-delay 2 "$url"
   fi
@@ -80,25 +398,7 @@ extract_tar() {
   fi
 }
 
-check_disk_space() {
-  local dest_dir="$1"
-  local required_kb="$2"
-  local test_dir="$dest_dir"
-  while [[ ! -d "$test_dir" && "$test_dir" != "/" ]]; do
-    test_dir=$(dirname "$test_dir")
-  done
-  local available_kb
-  available_kb=$(df -Pk "$test_dir" 2>/dev/null | awk 'NR==2 {print $4}')
-  if [[ -n "$available_kb" && "$available_kb" -lt "$required_kb" ]]; then
-    local required_mb=$((required_kb / 1024))
-    local available_mb=$((available_kb / 1024))
-    warn "Low disk space on $dest_dir: Available: ${available_mb}MB, Required: ${required_mb}MB"
-    printf '  Continue anyway? [y/N]: '
-    local space_ans=""
-    read -r space_ans < /dev/tty || space_ans="n"
-    [[ "$space_ans" =~ ^[Yy]$ ]] || die "Installation cancelled due to low disk space."
-  fi
-}
+
 
 # ── Temp dir & cleanup ────────────────────────────────────────────────────────
 BUILD_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'agy-build')
@@ -106,6 +406,9 @@ ALL_SUCCESS=0
 
 # Global backup variables for rolling back changes on failure
 CLI_AGY_BAK=""
+CLI_AGY_CREATED_FRESH=0
+CLI_AGY_VA39_BAK=""
+CLI_AGY_VA39_CREATED_FRESH=0
 
 DESKTOP_DIR_BAK=""
 DESKTOP_DIR_CREATED_FRESH=0
@@ -125,8 +428,41 @@ IDE_DESKTOP_CREATED_FRESH=0
 IDE_ICON_BAK=""
 IDE_ICON_CREATED_FRESH=0
 
+rollback_file() {
+  local bak="$1"
+  local target="$2"
+  local fresh="$3"
+  if [[ -n "$bak" && -f "$bak" ]]; then
+    rm -f "$target"
+    mv "$bak" "$target"
+  elif [[ "$fresh" -eq 1 ]]; then
+    rm -f "$target"
+  fi
+}
+
+rollback_dir() {
+  local bak="$1"
+  local target="$2"
+  local fresh="$3"
+  if [[ -n "$bak" && -d "$bak" ]]; then
+    rm -rf "$target"
+    mv "$bak" "$target"
+  elif [[ "$fresh" -eq 1 ]]; then
+    rm -rf "$target"
+  fi
+}
+
 cleanup() {
+  if [[ "${BASHPID:-$$}" -ne "${MAIN_PID:-$$}" ]]; then
+    return 0
+  fi
   printf "\033[?25h"
+  
+  # Kill active download process if interrupted
+  if [[ -n "${CURRENT_DOWNLOAD_PID:-}" ]]; then
+    kill "$CURRENT_DOWNLOAD_PID" 2>/dev/null || true
+  fi
+
   # Clean up temporary files / build dir
   [[ -n "${BUILD_DIR:-}" && -d "$BUILD_DIR" ]] && rm -rf "$BUILD_DIR"
 
@@ -134,93 +470,27 @@ cleanup() {
     info "Installation failed or interrupted! Reverting all changes..."
 
     # --- CLI Rollback ---
-    if [[ -n "$CLI_AGY_BAK" && -f "$CLI_AGY_BAK" ]]; then
-      rm -f "$INSTALL_BIN_DIR/agy"
-      mv "$CLI_AGY_BAK" "$INSTALL_BIN_DIR/agy"
-    fi
+    rollback_file "$CLI_AGY_BAK" "$INSTALL_BIN_DIR/agy" "$CLI_AGY_CREATED_FRESH"
+    rollback_file "$CLI_AGY_VA39_BAK" "$INSTALL_BIN_DIR/agy.va39" "$CLI_AGY_VA39_CREATED_FRESH"
 
     # --- Desktop Rollback ---
-    local desktop_target_dir="$HOME/.local/share/Antigravity-arm64"
-    local desktop_wrapper="$INSTALL_BIN_DIR/antigravity"
-    local desktop_file="$HOME/.local/share/applications/antigravity.desktop"
-    local desktop_icon="$HOME/.local/share/icons/antigravity.png"
-
-    if [[ -n "$DESKTOP_DIR_BAK" && -d "$DESKTOP_DIR_BAK" ]]; then
-      rm -rf "$desktop_target_dir"
-      mv "$DESKTOP_DIR_BAK" "$desktop_target_dir"
-      info "Restored previous Desktop target directory."
-    elif [[ "$DESKTOP_DIR_CREATED_FRESH" -eq 1 ]]; then
-      rm -rf "$desktop_target_dir"
-    fi
-    
-    if [[ -n "$DESKTOP_WRAPPER_BAK" && -f "$DESKTOP_WRAPPER_BAK" ]]; then
-      rm -f "$desktop_wrapper"
-      mv "$DESKTOP_WRAPPER_BAK" "$desktop_wrapper"
-    elif [[ "$DESKTOP_WRAPPER_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$desktop_wrapper"
-    fi
-    
-    if [[ -n "$DESKTOP_FILE_BAK" && -f "$DESKTOP_FILE_BAK" ]]; then
-      rm -f "$desktop_file"
-      mv "$DESKTOP_FILE_BAK" "$desktop_file"
-    elif [[ "$DESKTOP_FILE_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$desktop_file"
-    fi
-
-    if [[ -n "$DESKTOP_ICON_BAK" && -f "$DESKTOP_ICON_BAK" ]]; then
-      rm -f "$desktop_icon"
-      mv "$DESKTOP_ICON_BAK" "$desktop_icon"
-    elif [[ "$DESKTOP_ICON_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$desktop_icon"
-    fi
+    rollback_dir "$DESKTOP_DIR_BAK" "$HOME/.local/share/Antigravity-arm64" "$DESKTOP_DIR_CREATED_FRESH"
+    rollback_file "$DESKTOP_WRAPPER_BAK" "$INSTALL_BIN_DIR/antigravity" "$DESKTOP_WRAPPER_CREATED_FRESH"
+    rollback_file "$DESKTOP_FILE_BAK" "$HOME/.local/share/applications/antigravity.desktop" "$DESKTOP_FILE_CREATED_FRESH"
+    rollback_file "$DESKTOP_ICON_BAK" "$HOME/.local/share/icons/antigravity.png" "$DESKTOP_ICON_CREATED_FRESH"
 
     # --- IDE Rollback ---
-    local ide_target_dir="$HOME/.local/share/Antigravity IDE"
-    local ide_bin="$INSTALL_BIN_DIR/antigravity-ide"
-    local ide_desktop="$HOME/.local/share/applications/antigravity-ide.desktop"
-    local ide_icon="$HOME/.local/share/icons/antigravity-ide.png"
-
-    if [[ -n "$IDE_DIR_BAK" && -d "$IDE_DIR_BAK" ]]; then
-      rm -rf "$ide_target_dir"
-      mv "$IDE_DIR_BAK" "$ide_target_dir"
-      info "Restored previous IDE target directory."
-    elif [[ "$IDE_DIR_CREATED_FRESH" -eq 1 ]]; then
-      rm -rf "$ide_target_dir"
-    fi
-
-    if [[ -n "$IDE_BIN_BAK" && -f "$IDE_BIN_BAK" ]]; then
-      rm -f "$ide_bin"
-      mv "$IDE_BIN_BAK" "$ide_bin"
-    elif [[ "$IDE_BIN_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$ide_bin"
-    fi
-
-    if [[ -n "$IDE_DESKTOP_BAK" && -f "$IDE_DESKTOP_BAK" ]]; then
-      rm -f "$ide_desktop"
-      mv "$IDE_DESKTOP_BAK" "$ide_desktop"
-    elif [[ "$IDE_DESKTOP_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$ide_desktop"
-    fi
-
-    if [[ -n "$IDE_ICON_BAK" && -f "$IDE_ICON_BAK" ]]; then
-      rm -f "$ide_icon"
-      mv "$IDE_ICON_BAK" "$ide_icon"
-    elif [[ "$IDE_ICON_CREATED_FRESH" -eq 1 ]]; then
-      rm -f "$ide_icon"
-    fi
+    rollback_dir "$IDE_DIR_BAK" "$HOME/.local/share/Antigravity IDE" "$IDE_DIR_CREATED_FRESH"
+    rollback_file "$IDE_BIN_BAK" "$INSTALL_BIN_DIR/antigravity-ide" "$IDE_BIN_CREATED_FRESH"
+    rollback_file "$IDE_DESKTOP_BAK" "$HOME/.local/share/applications/antigravity-ide.desktop" "$IDE_DESKTOP_CREATED_FRESH"
+    rollback_file "$IDE_ICON_BAK" "$HOME/.local/share/icons/antigravity-ide.png" "$IDE_ICON_CREATED_FRESH"
   else
-    # Success: delete all backups
-    [[ -n "$CLI_AGY_BAK" && -f "$CLI_AGY_BAK" ]] && rm -f "$CLI_AGY_BAK"
-    
-    [[ -n "$DESKTOP_DIR_BAK" && -d "$DESKTOP_DIR_BAK" ]] && rm -rf "$DESKTOP_DIR_BAK"
-    [[ -n "$DESKTOP_WRAPPER_BAK" && -f "$DESKTOP_WRAPPER_BAK" ]] && rm -f "$DESKTOP_WRAPPER_BAK"
-    [[ -n "$DESKTOP_FILE_BAK" && -f "$DESKTOP_FILE_BAK" ]] && rm -f "$DESKTOP_FILE_BAK"
-    [[ -n "$DESKTOP_ICON_BAK" && -f "$DESKTOP_ICON_BAK" ]] && rm -f "$DESKTOP_ICON_BAK"
-    
-    [[ -n "$IDE_DIR_BAK" && -d "$IDE_DIR_BAK" ]] && rm -rf "$IDE_DIR_BAK"
-    [[ -n "$IDE_BIN_BAK" && -f "$IDE_BIN_BAK" ]] && rm -f "$IDE_BIN_BAK"
-    [[ -n "$IDE_DESKTOP_BAK" && -f "$IDE_DESKTOP_BAK" ]] && rm -f "$IDE_DESKTOP_BAK"
-    [[ -n "$IDE_ICON_BAK" && -f "$IDE_ICON_BAK" ]] && rm -f "$IDE_ICON_BAK"
+    # Success: delete all backups and downloaded archives in cache
+    rm -f "$CLI_AGY_BAK" "$CLI_AGY_VA39_BAK" "$DESKTOP_WRAPPER_BAK" "$DESKTOP_FILE_BAK" "$DESKTOP_ICON_BAK" "$IDE_BIN_BAK" "$IDE_DESKTOP_BAK" "$IDE_ICON_BAK" 2>/dev/null || true
+    rm -rf "$DESKTOP_DIR_BAK" "$IDE_DIR_BAK" 2>/dev/null || true
+    rm -f "${DOWNLOAD_CACHE_DIR}/cli_upstream_v"*.tar.gz 2>/dev/null || true
+    rm -f "${DOWNLOAD_CACHE_DIR}/desktop_v"*.tar.gz 2>/dev/null || true
+    rm -f "${DOWNLOAD_CACHE_DIR}/ide_v"*.tar.gz 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -276,8 +546,10 @@ MjY7MjM4beKWhBtbMG0bWzM4OzI7NDE7MTA5OzIwN23iloQbWzBtICAgG1swbQogICAgICAgICAg
 ICAgICAgICAgICAgICAgICAbWzBtCiAgICAgICAgICAgICAgICAgICAgICAgIBtbMG0KG1s/MjVo
 EOF
 
-COLS=$(tput cols </dev/tty 2>/dev/null || echo 60)
-awk -v cols="$COLS" -v env="${ENV_TYPE}" -v bold="${B}${C}" -v dim="${D}" -v rst="${N}" '
+logo_cols=$(tput cols </dev/tty 2>/dev/null || echo 60)
+# Disable line wrapping so terminal resize doesn't corrupt the logo
+printf '\033[?7l'
+awk -v cols="$logo_cols" -v env="${ENV_TYPE}" -v bold="${B}${C}" -v dim="${D}" -v rst="${N}" '
 {
   sub(/\r$/, "");
   if (cols >= 48) {
@@ -286,20 +558,22 @@ awk -v cols="$COLS" -v env="${ENV_TYPE}" -v bold="${B}${C}" -v dim="${D}" -v rst
     else if (NR == 4) printf "\033[28G %sAll-in-One Installer%s", dim, rst;
     else if (NR == 5) printf "\033[28G %s────────────────────%s", dim, rst;
     else if (NR == 6) printf "\033[28G %sEnv:%s    %s", dim, rst, env;
-    printf "\n";
+    printf "\033[K\n";
   } else {
-    print $0;
+    printf "%s\033[K\n", $0;
   }
 }
 END {
   if (cols < 48) {
     printf "\n";
-    printf "  %sAntigravity Termux%s\n", bold, rst;
-    printf "  %sAll-in-One Installer%s\n", dim, rst;
-    printf "  %s────────────────────%s\n", dim, rst;
-    printf "  %sEnv:%s    %s\n", dim, rst, env;
+    printf "  %sAntigravity Termux%s\033[K\n", bold, rst;
+    printf "  %sAll-in-One Installer%s\033[K\n", dim, rst;
+    printf "  %s────────────────────%s\033[K\n", dim, rst;
+    printf "  %sEnv:%s    %s\033[K\n", dim, rst, env;
   }
 }' "$TMP_LOGO"
+# Re-enable line wrapping
+printf '\033[?7h'
 echo ""
 sep
 
@@ -316,17 +590,14 @@ if [[ "$ENV_TYPE" == "termux" ]]; then
   info "Directly routing to Antigravity CLI installation..."
   INSTALL_CLI=1
 else
-  printf '\n'
-  printf '  %b\n' "${B}Select products to install:${N}"
-  printf '\n'
-  printf '  %b\n' "${C}1${N}  Antigravity CLI ${D}(agy — standalone terminal agent)${N}"
-  printf '  %b\n' "${C}2${N}  Antigravity IDE ${D}(VS Code-based agentic IDE)${N}"
-  printf '  %b\n' "${C}3${N}  Antigravity 2.0 ${D}(Desktop Electron application)${N}"
-  printf '\n'
-  printf '  %b' "${D}Enter choice (e.g. ${N}${B}1${N}${D}, ${N}${B}13${N}${D}, ${N}${B}123${N}${D}):${N} "
+  printf '\n  %b\n\n' "${B}Select products to install:${N}"
+  printf '  [%b1%b]  Antigravity CLI %b(agy — standalone terminal agent)%b\n' "${C}" "${N}" "${D}" "${N}"
+  printf '  [%b2%b]  Antigravity IDE %b(VS Code-based agentic IDE)%b\n' "${C}" "${N}" "${D}" "${N}"
+  printf '  [%b3%b]  Antigravity 2.0 %b(Desktop Electron application)%b\n' "${C}" "${N}" "${D}" "${N}"
+  printf '\n  %bEnter choice (e.g. %b1%b, %b13%b, %b123%b): ' "${C}❯${N}" "${B}" "${N}" "${B}" "${N}" "${B}" "${N}"
 
   SELECTION=""
-  read -r SELECTION < /dev/tty || true
+  safe_read -r SELECTION < /dev/tty || true
 
   if [[ -z "$SELECTION" ]]; then
     die "No selection made."
@@ -356,7 +627,6 @@ sep
 
 # ── Interactive Prompts & Confirmations Upfront ───────────────────────────────
 RUN_CLI_INSTALL=0
-RUN_CLI_UNPATCHED=0
 RUN_DESKTOP_INSTALL=0
 RUN_IDE_INSTALL=0
 
@@ -369,31 +639,13 @@ if [[ $INSTALL_CLI -eq 1 ]]; then
   if [[ -f "$INSTALL_BIN_DIR/agy" ]]; then
     warn "An existing installation of Antigravity CLI was detected at $INSTALL_BIN_DIR/agy."
     info "Reinstalling will update the application binary. Your user data (configurations, logs, and databases in ~/.gemini/ and other directories) will NOT be lost or affected."
-    printf '  Proceed with reinstalling/updating CLI? [Y/n]: '
-    run_ans=""
-    read -r run_ans < /dev/tty || run_ans="y"
-    if [[ ! "$run_ans" =~ ^[Yy]$ && -n "$run_ans" ]]; then
+    if ! ask_confirm "Proceed with reinstalling/updating CLI?"; then
       info "Skipping CLI installation in this script."
       RUN_CLI_INSTALL=0
     fi
   fi
 
-  if [[ $RUN_CLI_INSTALL -eq 1 ]]; then
-    printf '\n  %b\n' "${B}Antigravity CLI Installation Options:${N}"
-    printf '  - %bY%b: Continue CLI installation using this script but WITHOUT patching/wrapping.%b\n' "${G}" "${N}" "${N}"
-    printf '  - %bN%b: Skip CLI installation in this script (e.g. to copy the official command and run it manually in another session: %bcurl -fsSL https://antigravity.google/cli/install.sh | bash%b).%b\n' "${R}" "${N}" "${C}" "${N}" "${N}"
-    printf '  Continue with unpatched installation in this script? [Y/n]: '
-    opt_ans=""
-    read -r opt_ans < /dev/tty || opt_ans="y"
-    if [[ ! "$opt_ans" =~ ^[Yy]$ && -n "$opt_ans" ]]; then
-      info "Skipping CLI installation in this script."
-      info "You can copy and run this command in a different terminal session:"
-      printf '  %bcurl -fsSL https://antigravity.google/cli/install.sh | bash%b\n\n' "${C}" "${N}"
-      RUN_CLI_INSTALL=0
-    else
-      RUN_CLI_UNPATCHED=1
-    fi
-  fi
+
 fi
 
 # 2. Desktop Confirmations
@@ -402,10 +654,7 @@ if [[ $INSTALL_DESKTOP -eq 1 ]]; then
   if [[ -d "$desktop_target_dir" ]]; then
     warn "An existing installation of Antigravity Desktop was detected at $desktop_target_dir."
     info "Reinstalling will update the application files. Your user data, configurations, and application state (stored outside the installation directory) will NOT be lost or affected."
-    printf '  Proceed with reinstalling/updating Desktop? [Y/n]: '
-    run_ans=""
-    read -r run_ans < /dev/tty || run_ans="y"
-    if [[ ! "$run_ans" =~ ^[Yy]$ && -n "$run_ans" ]]; then
+    if ! ask_confirm "Proceed with reinstalling/updating Desktop?"; then
       info "Skipping Desktop installation."
       RUN_DESKTOP_INSTALL=0
     fi
@@ -418,10 +667,7 @@ if [[ $INSTALL_IDE -eq 1 ]]; then
   if [[ -d "$ide_target_dir" ]]; then
     warn "An existing installation of Antigravity IDE was detected at $ide_target_dir."
     info "Reinstalling will update the application files. Your custom extensions, settings, and workspace data (stored outside the installation directory) will NOT be lost or affected."
-    printf '  Proceed with reinstalling/updating IDE? [Y/n]: '
-    run_ans=""
-    read -r run_ans < /dev/tty || run_ans="y"
-    if [[ ! "$run_ans" =~ ^[Yy]$ && -n "$run_ans" ]]; then
+    if ! ask_confirm "Proceed with reinstalling/updating IDE?"; then
       info "Skipping IDE installation."
       RUN_IDE_INSTALL=0
     fi
@@ -438,181 +684,66 @@ if [[ $RUN_CLI_INSTALL -eq 0 && $RUN_DESKTOP_INSTALL -eq 0 && $RUN_IDE_INSTALL -
   exit 0
 fi
 
-# 4. Total Disk Space Check Upfront
-total_required_kb=0
-[[ $RUN_CLI_INSTALL -eq 1 ]] && total_required_kb=$((total_required_kb + 51200))
-[[ $RUN_DESKTOP_INSTALL -eq 1 ]] && total_required_kb=$((total_required_kb + 307200))
-[[ $RUN_IDE_INSTALL -eq 1 ]] && total_required_kb=$((total_required_kb + 819200))
-
-if [[ $total_required_kb -gt 0 ]]; then
-  check_disk_space "$HOME/.local" "$total_required_kb"
-fi
-
 # ── Prerequisite Checks & Package Manager Prompts Upfront ─────────────────────
 detect_compiler() {
-  if [[ "$ENV_TYPE" == "termux" ]] && [[ -x "/data/data/com.termux/files/usr/bin/clang" ]]; then
-    echo "/data/data/com.termux/files/usr/bin/clang"
-    return 0
-  fi
-  if command -v clang &>/dev/null; then
-    echo "clang"
-    return 0
-  elif command -v gcc &>/dev/null; then
-    echo "gcc"
-    return 0
-  fi
-  return 1
-}
-
-
-check_glibc() {
   if [[ "$ENV_TYPE" == "termux" ]]; then
-    [[ -d "${TERMUX_PREFIX}/glibc" ]]
+    echo "/data/data/com.termux/files/usr/bin/clang"
   else
-    ldd --version 2>&1 | grep -qi -E '(glibc|gnu libc)'
+    echo "clang"
   fi
 }
-
-# Determine what needs downloading
-NEED_DOWNLOAD=0
-CLI_UPSTREAM_BIN=""
-
-if [[ $RUN_CLI_INSTALL -eq 1 ]]; then
-  if [[ -f "./antigravity" ]]; then
-    CLI_UPSTREAM_BIN="./antigravity"
-  elif [[ -f "./agy" ]]; then
-    CLI_UPSTREAM_BIN="./agy"
-  else
-    NEED_DOWNLOAD=1
-  fi
-fi
-
-DESKTOP_ARCHIVE_NAME="Antigravity.tar.gz"
-if [[ -f "$DESKTOP_ARCHIVE_NAME" ]]; then
-  info "Using local archive: $DESKTOP_ARCHIVE_NAME"
-  DESKTOP_ARCHIVE="$(pwd)/$DESKTOP_ARCHIVE_NAME"
-else
-  if [[ $RUN_DESKTOP_INSTALL -eq 1 ]]; then
-    NEED_DOWNLOAD=1
-  fi
-  DESKTOP_ARCHIVE="${BUILD_DIR}/$DESKTOP_ARCHIVE_NAME"
-fi
-
-IDE_ARCHIVE_NAME="Antigravity IDE.tar.gz"
-if [[ -f "$IDE_ARCHIVE_NAME" ]]; then
-  info "Using local archive: $IDE_ARCHIVE_NAME"
-  IDE_ARCHIVE="$(pwd)/$IDE_ARCHIVE_NAME"
-else
-  if [[ $RUN_IDE_INSTALL -eq 1 ]]; then
-    NEED_DOWNLOAD=1
-  fi
-  IDE_ARCHIVE="${BUILD_DIR}/$IDE_ARCHIVE_NAME"
-fi
 
 check_and_install_dependencies() {
-  while true; do
-    local missing=()
-    local tools=(python3 tar)
+  if [[ "$ENV_TYPE" == "termux" ]]; then
+    command -v pkg >/dev/null 2>&1 || die "pkg is required but not found to install dependencies"
 
-    if [[ $NEED_DOWNLOAD -eq 1 ]]; then
-      tools+=(curl)
-    fi
-    if [[ $RUN_CLI_INSTALL -eq 1 && -z "$CLI_UPSTREAM_BIN" ]]; then
-      tools+=(jq)
-    fi
+    local to_install=("python" "tar" "curl" "jq" "clang" "glibc-repo" "glibc")
 
-    for cmd in "${tools[@]}"; do
-      if ! command -v "$cmd" &>/dev/null; then
-        missing+=("$cmd")
-      fi
-    done
-
-    local compiler_found=0
-    if detect_compiler &>/dev/null; then
-      compiler_found=1
-    fi
-
-    local glibc_missing=0
-    if ! check_glibc; then
-      glibc_missing=1
-    fi
-
-    if [[ ${#missing[@]} -eq 0 && $compiler_found -eq 1 && $glibc_missing -eq 0 ]]; then
-      break
-    fi
-
-    if [[ "$ENV_TYPE" == "termux" ]]; then
-      command -v pkg >/dev/null 2>&1 || die "pkg is required but not found to install missing dependencies"
-
-      local to_install=()
-      for tool in "${missing[@]}"; do
-        if [[ "$tool" == "python3" ]]; then
-          to_install+=("python")
-        else
-          to_install+=("$tool")
-        fi
-      done
-      [[ $compiler_found -eq 0 ]] && to_install+=("clang")
-      if [[ $glibc_missing -eq 1 ]]; then
-        to_install+=("glibc-repo" "glibc")
-      fi
-
-      printf '\n  %b\n' "${R}✗${N} Missing: ${B}${to_install[*]}${N}"
-      printf '  Install now? [Y/n]: '
-      read -r -n 1 ans < /dev/tty || ans="y"
-      printf "\n"
-      if [[ "$ans" =~ ^[Yy]$ ]] || [[ -z "$ans" ]]; then
-        info "Installing requirements: ${to_install[*]}..."
-        if [[ " ${to_install[*]} " =~ " glibc-repo " ]]; then
-          pkg install -y glibc-repo &>/dev/null || true
-        fi
-        pkg install -y "${to_install[@]}" &>/dev/null || die "Failed to install: ${to_install[*]}"
-      else
-        die "Required: ${to_install[*]}."
-      fi
+    warn "Installing/reinstalling dependencies: ${B}${to_install[*]}${N}"
+    if ask_confirm "Proceed with installation?"; then
+      info "Installing requirements: ${to_install[*]}..."
+      pkg install -y glibc-repo &>/dev/null || true
+      pkg install -y "${to_install[@]}" &>/dev/null || die "Failed to install dependencies: ${to_install[*]}"
     else
-      [[ $glibc_missing -eq 1 ]] && die "glibc is required but not found. Please install glibc using your distribution's package manager."
-
-      local apt_packages=() apk_packages=() pacman_packages=() dnf_packages=()
-
-      for tool in "${missing[@]}"; do
-        case "$tool" in
-          python3) apt_packages+=("python3"); apk_packages+=("python3"); pacman_packages+=("python"); dnf_packages+=("python3") ;;
-          *)       apt_packages+=("$tool");    apk_packages+=("$tool");  pacman_packages+=("$tool");  dnf_packages+=("$tool") ;;
-        esac
-      done
-      if [[ $compiler_found -eq 0 ]]; then
-        apt_packages+=("build-essential"); apk_packages+=("build-base")
-        pacman_packages+=("base-devel"); dnf_packages+=("gcc" "gcc-c++" "make")
-      fi
-
-      local helper=""
-      [[ "$EUID" -ne 0 ]] && command -v sudo &>/dev/null && helper="sudo "
-      local show_cmd="" run_cmd=""
-      if command -v apt-get &>/dev/null; then
-        show_cmd="${helper}apt-get update && ${helper}apt-get install -y ${apt_packages[*]}"
-        run_cmd="${helper}DEBIAN_FRONTEND=noninteractive apt-get update &>/dev/null && ${helper}DEBIAN_FRONTEND=noninteractive apt-get install -y ${apt_packages[*]} &>/dev/null"
-      elif command -v apk &>/dev/null; then
-        show_cmd="${helper}apk add ${apk_packages[*]}"
-        run_cmd="${helper}apk add ${apk_packages[*]} &>/dev/null"
-      elif command -v pacman &>/dev/null; then
-        show_cmd="${helper}pacman -Sy --noconfirm ${pacman_packages[*]}"
-        run_cmd="${helper}pacman -Sy --noconfirm ${pacman_packages[*]} &>/dev/null"
-      elif command -v dnf &>/dev/null; then
-        show_cmd="${helper}dnf install -y ${dnf_packages[*]}"
-        run_cmd="${helper}dnf install -y ${dnf_packages[*]} &>/dev/null"
-      fi
-      [[ -z "$show_cmd" ]] && die "No supported package manager found. Install manually: ${missing[*]}"
-      printf '\n  %b\n' "${R}✗${N} Missing: ${B}${missing[*]}${N}"
-      printf '  %b\n\n' "${D}$ ${N}${show_cmd}"
-      printf '  Enter to install, c to cancel: '
-      local ans=""; read -r ans < /dev/tty || ans="c"
-      [[ "$ans" =~ ^[Cc]$ ]] && die "Installation cancelled by user."
-      if [[ -n "$helper" ]]; then sudo -v || die "Authentication failed."; fi
-      info "Installing requirements..."
-      eval "$run_cmd" || die "Automatic installation failed."
+      die "Installation of dependencies is required."
     fi
-  done
+  else
+    local apt_packages=("python3" "tar" "curl" "jq" "clang")
+    local apk_packages=("python3" "tar" "curl" "jq" "clang")
+    local pacman_packages=("python" "tar" "curl" "jq" "clang")
+    local dnf_packages=("python3" "tar" "curl" "jq" "clang")
+
+    # Check privilege helper (use sudo if available and we're not root)
+    local helper=""
+    [[ "$EUID" -ne 0 ]] && command -v sudo &>/dev/null && helper="sudo "
+    local show_cmd="" run_cmd=""
+    if command -v apt-get &>/dev/null; then
+      show_cmd="${helper}apt-get update && ${helper}apt-get install -y ${apt_packages[*]}"
+      run_cmd="${helper}DEBIAN_FRONTEND=noninteractive apt-get update &>/dev/null && ${helper}DEBIAN_FRONTEND=noninteractive apt-get install -y ${apt_packages[*]} &>/dev/null"
+    elif command -v apk &>/dev/null; then
+      show_cmd="${helper}apk add ${apk_packages[*]}"
+      run_cmd="${helper}apk add ${apk_packages[*]} &>/dev/null"
+    elif command -v pacman &>/dev/null; then
+      show_cmd="${helper}pacman -Sy --noconfirm ${pacman_packages[*]}"
+      run_cmd="${helper}pacman -Sy --noconfirm ${pacman_packages[*]} &>/dev/null"
+    elif command -v dnf &>/dev/null; then
+      show_cmd="${helper}dnf install -y ${dnf_packages[*]}"
+      run_cmd="${helper}dnf install -y ${dnf_packages[*]} &>/dev/null"
+    fi
+    [[ -z "$show_cmd" ]] && die "No supported package manager found. Please install manually: python3, tar, curl, jq, clang"
+    
+    warn "Installing/reinstalling dependencies..."
+    printf '  %b\n\n' "${D}$ ${N}${show_cmd}"
+    printf '  %bEnter to install, c to cancel: ' "${C}❯${N} "
+    local ans=""
+    safe_read -r ans < /dev/tty || ans="c"
+    if [[ "$ans" =~ ^[Cc]$ ]]; then
+      die "Installation cancelled by user."
+    fi
+    if [[ -n "$helper" ]]; then sudo -v || die "Authentication failed."; fi
+    info "Installing requirements..."
+    eval "$run_cmd" || die "Automatic installation of dependencies failed."
+  fi
 }
 
 info "Checking system requirements..."
@@ -634,6 +765,7 @@ def get(off): return struct.unpack_from("<I", data, off)[0]
 def put(off, word): struct.pack_into("<I", data, off, word)
 
 lo, hi = 0, len(data)
+if len(sys.argv) > 3: hi = int(sys.argv[3], 16)
 ubfx_count = lsl_count = mask_count = mmap_count = faccessat2_count = 0
 
 for off in range(lo, hi, 4):
@@ -837,10 +969,14 @@ fetch_aur_version() {
   local pkgbuild
   pkgbuild=$(download_file "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=${pkg_name}" "" || echo "")
   [[ -z "$pkgbuild" ]] && die "Failed to retrieve AUR PKGBUILD for $pkg_name."
-  local pkgver
-  pkgver=$(echo "$pkgbuild" | grep -E "^pkgver=" | cut -d= -f2 | xargs)
-  local build_num
-  build_num=$(echo "$pkgbuild" | grep -E "^_build=" | cut -d= -f2 | xargs)
+
+  local pkgver="" build_num=""
+  # Parse both fields in a single awk execution to avoid subprocess spawns
+  eval "$(echo "$pkgbuild" | awk -F= '
+    /^pkgver=/ { gsub(/^[ \t"\x27]+|[ \t"\x27]+$/, "", $2); print "pkgver=" $2 }
+    /^_build=/ { gsub(/^[ \t"\x27]+|[ \t"\x27]+$/, "", $2); print "build_num=" $2 }
+  ')"
+
   [[ -z "$pkgver" || -z "$build_num" ]] && die "Failed to parse pkgver/_build from AUR PKGBUILD for $pkg_name."
   echo "${pkgver}:${build_num}"
 }
@@ -851,14 +987,28 @@ fetch_aur_version() {
 install_cli() {
   echo ""
   sep
-  printf '  %b\n' "${B}${C}Installing ${TASK_PROGRESS}: Antigravity CLI${N}"
+  printf '  %b%b❯ Installing %s: Antigravity CLI%b\n' "${C}" "${B}" "${TASK_PROGRESS}" "${N}"
   sep
 
   # Reset CLI backups
   CLI_AGY_BAK=""
+  CLI_AGY_CREATED_FRESH=0
+  CLI_AGY_VA39_BAK=""
+  CLI_AGY_VA39_CREATED_FRESH=0
 
   if [[ -f "$INSTALL_BIN_DIR/agy" ]]; then
     CLI_AGY_BAK="$INSTALL_BIN_DIR/agy.bak.$$"
+    mv -f "$INSTALL_BIN_DIR/agy" "$CLI_AGY_BAK"
+  else
+    CLI_AGY_CREATED_FRESH=1
+  fi
+  if [[ "$ENV_TYPE" == "termux" ]]; then
+    if [[ -f "$INSTALL_BIN_DIR/agy.va39" ]]; then
+      CLI_AGY_VA39_BAK="$INSTALL_BIN_DIR/agy.va39.bak.$$"
+      mv -f "$INSTALL_BIN_DIR/agy.va39" "$CLI_AGY_VA39_BAK"
+    else
+      CLI_AGY_VA39_CREATED_FRESH=1
+    fi
   fi
 
   local status=0
@@ -866,22 +1016,28 @@ install_cli() {
   (
     trap - EXIT
     set -e
-    if [[ -n "$CLI_AGY_BAK" ]]; then
-      mv -f "$INSTALL_BIN_DIR/agy" "$CLI_AGY_BAK"
-    fi
 
     info "Querying latest CLI version..."
     MANIFEST_URL="https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_arm64.json"
     manifest=$(download_file "$MANIFEST_URL" "" || echo "")
     [[ -z "$manifest" ]] && die "CLI: Failed to query manifest from $MANIFEST_URL"
 
-    latest_version=$(echo "$manifest" | jq -r .version)
-    download_url=$(echo "$manifest" | jq -r .url)
+    # Consolidate manifest parsing into a single jq call
+    { read -r latest_version; read -r download_url; } < <(echo "$manifest" | jq -r '.version, .url')
     info "Latest version: v$latest_version"
 
+    # Remove old versions from cache
+    for f in "$DOWNLOAD_CACHE_DIR"/cli_upstream_v*.tar.gz; do
+      if [[ -e "$f" && "$(basename "$f")" != "cli_upstream_v${latest_version}.tar.gz" ]]; then
+        info "Removing old CLI installer archive: $(basename "$f")"
+        rm -f "$f"
+      fi
+    done
+    local CLI_ARCHIVE="${DOWNLOAD_CACHE_DIR}/cli_upstream_v${latest_version}.tar.gz"
+
     info "Downloading CLI binary..."
-    download_file "$download_url" "${BUILD_DIR}/cli_upstream.tar.gz" || die "CLI: Download failed"
-    extract_tar "${BUILD_DIR}/cli_upstream.tar.gz" "${BUILD_DIR}/" || die "CLI: Extraction failed"
+    download_file "$download_url" "$CLI_ARCHIVE" || die "CLI: Download failed"
+    extract_tar "$CLI_ARCHIVE" "${BUILD_DIR}/" || die "CLI: Extraction failed"
 
     if [[ -f "${BUILD_DIR}/antigravity" ]]; then
       CLI_UPSTREAM_BIN="${BUILD_DIR}/antigravity"
@@ -891,8 +1047,213 @@ install_cli() {
       die "CLI: Could not find extracted binary."
     fi
 
-    mkdir -p "$INSTALL_BIN_DIR"
-    install -m 0755 "$CLI_UPSTREAM_BIN" "$INSTALL_BIN_DIR/agy" || die "CLI: Failed to install agy"
+    if [[ "$ENV_TYPE" == "termux" ]]; then
+      info "Writing embedded source code..."
+
+      cat << 'EOF' > "${BUILD_DIR}/agy_helper.c"
+#include "mmap_va39_fix_bytes.h"
+#include <ctype.h>
+#include <errno.h>
+#include <libgen.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#ifndef AGY_TERMUX_VERSION
+#define AGY_TERMUX_VERSION "1.0.2"
+#endif
+
+// Returns the path of the unpacked .so on success, NULL on failure
+const char *unpack_mmap_fixer(void) {
+    static char unpacked_path[PATH_MAX];
+
+    // Resolve temp directory priority: $TMPDIR -> /tmp
+    const char *tmp = getenv("TMPDIR");
+    if (!tmp || tmp[0] == '\0') {
+        tmp = "/tmp";
+    }
+
+    int written = snprintf(unpacked_path, sizeof(unpacked_path), "%s/libmmap_va39_fix.so", tmp);
+    if (written < 0 || written >= (int)sizeof(unpacked_path)) {
+        return NULL;
+    }
+
+    // Check if the file already exists and matches the expected size to avoid redundant writes
+    struct stat st;
+    if (stat(unpacked_path, &st) == 0 && st.st_size == (off_t)mmap_va39_fix_so_len) {
+        return unpacked_path;
+    }
+
+    // Unpack the bytes
+    FILE *fp = fopen(unpacked_path, "wb");
+    if (!fp) {
+        return NULL;
+    }
+
+    size_t written_bytes = fwrite(mmap_va39_fix_so, 1, mmap_va39_fix_so_len, fp);
+
+    if (fclose(fp) != 0 || written_bytes != mmap_va39_fix_so_len) {
+        unlink(unpacked_path);
+        return NULL;
+    }
+
+    // Ensure it is executable
+    if (chmod(unpacked_path, 0755) != 0) {
+        return NULL;
+    }
+
+    return unpacked_path;
+}
+
+int main(int argc, char **argv) {
+    // 1. Consolidate variables at top to avoid shadowing (-Wshadow)
+    char exec_path[PATH_MAX];
+    char lib_path[PATH_MAX * 3];
+    char patched_bin[PATH_MAX];
+    const char *loader = "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1";
+    const char *dir = NULL;
+    const char *fixer_path = NULL;
+    char **new_argv = NULL;
+    int is_termux = 0;
+    int arg_idx = 0;
+    int written = 0;
+    ssize_t read_len = 0;
+
+    // Detect if running in native Termux
+    is_termux = (access("/data/data/com.termux/files/usr/bin", F_OK) == 0);
+
+    // 2. Clear conflicting Android Bionic preloads and search paths
+    if (is_termux) {
+        unsetenv("LD_PRELOAD");
+    }
+    unsetenv("LD_LIBRARY_PATH");
+
+    // 3. Set dynamic Go resolver and SSL configurations
+    setenv("GODEBUG", "netdns=cgo", 1);
+    if (is_termux) {
+        setenv("SSL_CERT_FILE", "/data/data/com.termux/files/usr/etc/tls/cert.pem", 1);
+    } else if (access("/etc/ssl/certs/ca-certificates.crt", F_OK) == 0) {
+        setenv("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt", 1);
+    }
+
+    // 4. Resolve executable directory
+    read_len = readlink("/proc/self/exe", exec_path, sizeof(exec_path) - 1);
+    if (read_len == -1) {
+        return 1;
+    }
+    exec_path[read_len] = '\0';
+    dir = dirname(exec_path);
+
+    // 6. Handle interposer unpacking in non-Termux (chroot) environments
+    if (!is_termux) {
+        fixer_path = unpack_mmap_fixer();
+        if (!fixer_path) {
+            (void)fprintf(stderr,
+                          "[ERR] Failed to extract PRoot compatibility layer. Please check /tmp "
+                          "permissions.\n");
+            return 1;
+        }
+    }
+
+    // 7. Resolve dynamic loader path
+    if (access(loader, F_OK) != 0) {
+        loader = "/lib/ld-linux-aarch64.so.1";
+    }
+
+    // 8. Construct relocatable library search path
+    if (is_termux) {
+        written = snprintf(lib_path, sizeof(lib_path),
+                           "%s/../lib:/data/data/com.termux/files/usr/glibc/lib", dir);
+    } else {
+        written = snprintf(lib_path, sizeof(lib_path),
+                           "%s/../lib:/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib64:/"
+                           "usr/lib64:/lib:/usr/lib",
+                           dir);
+    }
+    if (written < 0 || written >= (int)sizeof(lib_path)) {
+        return 1;
+    }
+
+    // Construct path to the patched binary
+    written = snprintf(patched_bin, sizeof(patched_bin), "%s/agy.va39", dir);
+    if (written < 0 || written >= (int)sizeof(patched_bin)) {
+        return 1;
+    }
+
+    // 9. Construct new argument array
+    // We allocate enough space for: loader + "--preload" + fixer_path + "--library-path" + lib_path
+    // + patched_bin + user args + NULL
+    int new_argc = argc + 8;
+    new_argv = malloc((size_t)new_argc * sizeof(*new_argv));
+    if (!new_argv) {
+        return 1;
+    }
+
+    arg_idx = 0;
+    new_argv[arg_idx++] = (char *)loader;
+
+    // Inject the interposer dynamic library as a preload if unpacked successfully
+    if (fixer_path) {
+        new_argv[arg_idx++] = "--preload";
+        new_argv[arg_idx++] = (char *)fixer_path;
+    }
+
+    new_argv[arg_idx++] = "--library-path";
+    new_argv[arg_idx++] = lib_path;
+    new_argv[arg_idx++] = patched_bin;
+
+    for (int i = 1; i < argc; i++) {
+        new_argv[arg_idx++] = argv[i];
+    }
+    new_argv[arg_idx] = NULL;
+
+    // 10. Execute the glibc dynamic loader
+    if (execv(loader, new_argv) == -1) {
+        perror("[agy-termux] execv failed");
+        free(new_argv);
+        return 1;
+    }
+}
+EOF
+
+      info "Generating byte header..."
+      python3 -c "
+import pathlib
+so_path = pathlib.Path('${BUILD_DIR}/libmmap_va39_fix.so')
+if not so_path.exists():
+    raise FileNotFoundError('libmmap_va39_fix.so not found')
+so_data = so_path.read_bytes()
+hex_bytes = ', '.join(f'0x{b:02x}' for b in so_data)
+pathlib.Path('${BUILD_DIR}/mmap_va39_fix_bytes.h').write_text(
+    '// clang-format off\n'
+    '#include <stddef.h>\n'
+    f'static const unsigned char mmap_va39_fix_so[] = {{ {hex_bytes} }};\n'
+    f'static const size_t mmap_va39_fix_so_len = {len(so_data)};\n'
+    '// clang-format on\n'
+)
+"
+
+      info "Compiling bootstrapper..."
+      if ! "$local_cc" -O2 -I"${BUILD_DIR}" -o "${BUILD_DIR}/agy" "${BUILD_DIR}/agy_helper.c"; then
+        die "CLI: Failed to compile native C bootstrapper."
+      fi
+      chmod +x "${BUILD_DIR}/agy"
+
+      info "Applying VA39 memory patches to upstream binary..."
+      patch_output=$(python3 "${BUILD_DIR}/va39_patch.py" "$CLI_UPSTREAM_BIN" "${BUILD_DIR}/agy.va39")
+      info "$patch_output"
+
+      mkdir -p "$INSTALL_BIN_DIR"
+      install -m 0755 "${BUILD_DIR}/agy" "$INSTALL_BIN_DIR/agy" || die "CLI: Failed to install agy"
+      install -m 0755 "${BUILD_DIR}/agy.va39" "$INSTALL_BIN_DIR/agy.va39" || die "CLI: Failed to install agy.va39"
+    else
+      mkdir -p "$INSTALL_BIN_DIR"
+      install -m 0755 "$CLI_UPSTREAM_BIN" "$INSTALL_BIN_DIR/agy" || die "CLI: Failed to install agy"
+    fi
   )
   status=$?
   set -e
@@ -906,7 +1267,13 @@ install_cli() {
       mv "$CLI_AGY_BAK" "$INSTALL_BIN_DIR/agy"
       info "Restored previous Antigravity CLI binary."
     fi
+    if [[ -n "$CLI_AGY_VA39_BAK" && -f "$CLI_AGY_VA39_BAK" ]]; then
+      rm -f "$INSTALL_BIN_DIR/agy.va39"
+      mv "$CLI_AGY_VA39_BAK" "$INSTALL_BIN_DIR/agy.va39"
+      info "Restored previous Antigravity CLI va39 binary."
+    fi
     CLI_AGY_BAK=""
+    CLI_AGY_VA39_BAK=""
     warn "CLI installation failed."
     CLI_INSTALL_STATUS="failed"
     return 1
@@ -914,7 +1281,11 @@ install_cli() {
     if [[ -n "$CLI_AGY_BAK" && -f "$CLI_AGY_BAK" ]]; then
       rm -f "$CLI_AGY_BAK"
     fi
+    if [[ -n "$CLI_AGY_VA39_BAK" && -f "$CLI_AGY_VA39_BAK" ]]; then
+      rm -f "$CLI_AGY_VA39_BAK"
+    fi
     CLI_AGY_BAK=""
+    CLI_AGY_VA39_BAK=""
     ok "CLI installed → ${D}${INSTALL_BIN_DIR}/agy${N}"
     CLI_INSTALL_STATUS="success"
     return 0
@@ -927,7 +1298,7 @@ install_cli() {
 install_desktop() {
   echo ""
   sep
-  printf '  %b\n' "${B}${C}Installing ${TASK_PROGRESS}: Antigravity 2.0 Desktop${N}"
+  printf '  %b%b❯ Installing %s: Antigravity 2.0 Desktop%b\n' "${C}" "${B}" "${TASK_PROGRESS}" "${N}"
   sep
 
   local TARGET_DIR="$HOME/.local/share/Antigravity-arm64"
@@ -945,6 +1316,8 @@ install_desktop() {
   DESKTOP_FILE_CREATED_FRESH=0
   DESKTOP_ICON_BAK=""
   DESKTOP_ICON_CREATED_FRESH=0
+
+  local DESKTOP_ARCHIVE="${BUILD_DIR}/desktop.tar.gz"
 
   if [[ -d "$TARGET_DIR" ]]; then
     DESKTOP_DIR_BAK="${TARGET_DIR}.bak.$$"
@@ -982,17 +1355,24 @@ install_desktop() {
     [[ -n "$DESKTOP_FILE_BAK" ]] && mv "$DESKTOP_FILE" "$DESKTOP_FILE_BAK"
     [[ -n "$DESKTOP_ICON_BAK" ]] && mv "$ICON_DST" "$DESKTOP_ICON_BAK"
 
-    # Download if needed
-    if [[ ! -f "$DESKTOP_ARCHIVE" ]]; then
-      local ver_info
-      ver_info=$(fetch_aur_version "antigravity")
-      local desktop_ver="${ver_info%%:*}"
-      local desktop_build="${ver_info#*:}"
-      info "Latest Desktop: v${desktop_ver}-${desktop_build}"
-      info "Downloading $DESKTOP_ARCHIVE..."
-      download_file "https://storage.googleapis.com/antigravity-public/antigravity-hub/${desktop_ver}-${desktop_build}/linux-arm/Antigravity.tar.gz" "$DESKTOP_ARCHIVE" || { rm -f "$DESKTOP_ARCHIVE"; die "Desktop: Download failed."; }
-      ok "Downloaded $DESKTOP_ARCHIVE"
-    fi
+    local ver_info
+    ver_info=$(fetch_aur_version "antigravity")
+    local desktop_ver="${ver_info%%:*}"
+    local desktop_build="${ver_info#*:}"
+    info "Latest Desktop: v${desktop_ver}-${desktop_build}"
+
+    # Remove old versions from cache
+    for f in "$DOWNLOAD_CACHE_DIR"/desktop_v*.tar.gz; do
+      if [[ -e "$f" && "$(basename "$f")" != "desktop_v${desktop_ver}-${desktop_build}.tar.gz" ]]; then
+        info "Removing old Desktop installer archive: $(basename "$f")"
+        rm -f "$f"
+      fi
+    done
+
+    DESKTOP_ARCHIVE="${DOWNLOAD_CACHE_DIR}/desktop_v${desktop_ver}-${desktop_build}.tar.gz"
+
+    info "Downloading Desktop archive..."
+    download_file "https://storage.googleapis.com/antigravity-public/antigravity-hub/${desktop_ver}-${desktop_build}/linux-arm/Antigravity.tar.gz" "$DESKTOP_ARCHIVE" || die "Desktop: Download failed."
 
     # Extract
     info "Extracting $DESKTOP_ARCHIVE..."
@@ -1038,104 +1418,15 @@ sys.exit(1)
 
     # 1. Backups
     info "Backing up original binaries..."
-    [[ -f "$APP_DIR/antigravity" && ! -f "$APP_DIR/antigravity.orig" ]] && cp "$APP_DIR/antigravity" "$APP_DIR/antigravity.orig"
     [[ -f "$BIN_DIR/language_server" && ! -f "$BIN_DIR/language_server.orig" ]] && cp "$BIN_DIR/language_server" "$BIN_DIR/language_server.orig"
 
-    # 2. Compile Interposer
-    info "Compiling mmap interposer..."
-    cat << 'COF' > "${BUILD_DIR}/desktop_mmap_va39_fix.c"
-// NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-#define _GNU_SOURCE
-#include <dlfcn.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
-#include <sys/mman.h>
-
-/*
- * TCMalloc assumes a 48-bit Virtual Address (VA) space.
- * Many ARM64 Android kernels (and chroots running on them) are limited to 39 bits.
- * This interposer intercepts mmap calls and clears the hint address if it
- * exceeds the 39-bit boundary, allowing the kernel to pick a safe address.
- */
-
-#ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE 0x100000
-#endif
-
-enum { max_va_bits = 39 };
-static const uintptr_t va_boundary = (uintptr_t)1 << max_va_bits;
-
-// NOLINTNEXTLINE(readability-inconsistent-declaration-parameter-name)
-void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
-    static void *(*real_mmap)(void *, size_t, int, int, int, off_t) = NULL;
-    if (!real_mmap) {
-        void *symbol = dlsym(RTLD_NEXT, "mmap");
-        memcpy(&real_mmap, &symbol, sizeof(real_mmap));
-    }
-
-    int is_fixed = (flags & MAP_FIXED) != 0;
-#ifdef MAP_FIXED_NOREPLACE
-    is_fixed = is_fixed || (flags & MAP_FIXED_NOREPLACE) != 0;
-#endif
-
-    if (!is_fixed && (uintptr_t)addr >= va_boundary) {
-        addr = NULL;
-    }
-
-    return real_mmap(addr, length, prot, flags, fd, offset);
-}
-COF
-    "$local_cc" -O2 -fPIC -shared -o "$INTERPOSER_SO" "${BUILD_DIR}/desktop_mmap_va39_fix.c" -ldl
+    # 2. Setup Interposer
+    info "Setting up mmap interposer..."
+    cp "${BUILD_DIR}/libmmap_va39_fix.so" "$INTERPOSER_SO"
 
     # 3. Surgical Patch for Language Server
     info "Applying surgical binary patch to language_server..."
-    python3 - "$BIN_DIR/language_server.orig" "$BIN_DIR/language_server" << 'PY'
-import sys, shutil, struct, pathlib
-src, dst = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-data = bytearray(src.read_bytes())
-def get(off): return struct.unpack_from("<I", data, off)[0]
-def put(off, word): struct.pack_into("<I", data, off, word)
-
-# Segment 01 (R E) for language_server ends at 0x060dc2e0
-hi = 0x060dc2e0
-counts = {"ubfx": 0, "lsl": 0, "mask": 0, "mmap": 0, "f2": 0}
-
-for off in range(0, hi, 4):
-    w = get(off)
-    if (w & 0x7F800000) == 0x53000000:
-        immr, imms = (w >> 16) & 0x3F, (w >> 10) & 0x3F
-        if immr == 42 and imms == 44:
-            put(off, (w & ~((0x3F << 16) | (0x3F << 10))) | (35 << 16) | (37 << 10)); counts["ubfx"] += 1
-        elif immr == 22 and imms == 21:
-            put(off, (w & ~((0x3F << 16) | (0x3F << 10))) | (29 << 16) | (28 << 10)); counts["lsl"] += 1
-
-for off in range(0, hi - 4, 4):
-    if get(off) == 0x92D3800A and get(off + 4) == 0xF2E0000A:
-        put(off, 0x9280000A); put(off + 4, 0xD35DFD4A); counts["mask"] += 1
-
-for off in range(0, hi, 4):
-    if get(off) == 0xF2E00029: put(off, 0xD3596129); counts["mmap"] += 1
-
-word_rewrites = {
-    0xD2C20009: 0xD2C00409, 0xD2C2000A: 0xD2C0040A, 0xF2C20008: 0xF2DFF408,
-    0xF2C20009: 0xF2DFF409, 0xD2C10009: 0xD2C00209, 0xD2C1000A: 0xD2C0020A,
-    0xF2C38008: 0xF2DFF708, 0xF2C38009: 0xF2DFF709, 0x92560A6C: 0x925D0A6C,
-    0x92560A6A: 0x925D0A6A, 0xD2C3000D: 0xD2C0060D, 0xD2C3000C: 0xD2C0060C,
-    0xD2C08008: 0xD2C00108,
-}
-for off in range(0, hi, 4):
-    w = get(off)
-    if w in word_rewrites: put(off, word_rewrites[w])
-
-for off in range(0, hi - 12, 4):
-    if get(off) == 0xAA1F03E5 and get(off + 4) == 0xAA1F03E6 and get(off + 8) == 0xD28036E0 and (get(off + 12) & 0xFC000000) == 0x94000000:
-        put(off + 8, 0xD2800600); counts["f2"] += 1
-
-dst.write_bytes(data)
-dst.chmod(0o755)
-print(f"  Patched: {counts}")
-PY
+    python3 "${BUILD_DIR}/va39_patch.py" "$BIN_DIR/language_server.orig" "$BIN_DIR/language_server" "0x060dc2e0"
 
     # 4. Create Wrapper
     info "Creating launcher wrapper..."
@@ -1260,7 +1551,7 @@ DEOF
 install_ide() {
   echo ""
   sep
-  printf '  %b\n' "${B}${C}Installing ${TASK_PROGRESS}: Antigravity IDE${N}"
+  printf '  %b%b❯ Installing %s: Antigravity IDE%b\n' "${C}" "${B}" "${TASK_PROGRESS}" "${N}"
   sep
 
   local TARGET_DIR="$HOME/.local/share/Antigravity IDE"
@@ -1279,6 +1570,8 @@ install_ide() {
   IDE_DESKTOP_CREATED_FRESH=0
   IDE_ICON_BAK=""
   IDE_ICON_CREATED_FRESH=0
+
+  local IDE_ARCHIVE="${BUILD_DIR}/ide.tar.gz"
 
   if [[ -d "$TARGET_DIR" ]]; then
     IDE_DIR_BAK="${TARGET_DIR}.bak.$$"
@@ -1316,17 +1609,24 @@ install_ide() {
     [[ -n "$IDE_DESKTOP_BAK" ]] && mv "$DESKTOP_FILE" "$IDE_DESKTOP_BAK"
     [[ -n "$IDE_ICON_BAK" ]] && mv "$ICON_DST" "$IDE_ICON_BAK"
 
-    # Download if needed
-    if [[ ! -f "$IDE_ARCHIVE" ]]; then
-      local ver_info
-      ver_info=$(fetch_aur_version "antigravity-ide")
-      local ide_ver="${ver_info%%:*}"
-      local ide_build="${ver_info#*:}"
-      info "Latest IDE: v${ide_ver}-${ide_build}"
-      info "Downloading $IDE_ARCHIVE..."
-      download_file "https://dl.google.com/release2/j0qc3/antigravity/stable/${ide_ver}-${ide_build}/linux-arm/Antigravity%20IDE.tar.gz" "$IDE_ARCHIVE" || { rm -f "$IDE_ARCHIVE"; die "IDE: Download failed."; }
-      ok "Downloaded $IDE_ARCHIVE"
-    fi
+    local ver_info
+    ver_info=$(fetch_aur_version "antigravity-ide")
+    local ide_ver="${ver_info%%:*}"
+    local ide_build="${ver_info#*:}"
+    info "Latest IDE: v${ide_ver}-${ide_build}"
+
+    # Remove old versions from cache
+    for f in "$DOWNLOAD_CACHE_DIR"/ide_v*.tar.gz; do
+      if [[ -e "$f" && "$(basename "$f")" != "ide_v${ide_ver}-${ide_build}.tar.gz" ]]; then
+        info "Removing old IDE installer archive: $(basename "$f")"
+        rm -f "$f"
+      fi
+    done
+
+    IDE_ARCHIVE="${DOWNLOAD_CACHE_DIR}/ide_v${ide_ver}-${ide_build}.tar.gz"
+
+    info "Downloading IDE archive..."
+    download_file "https://dl.google.com/release2/j0qc3/antigravity/stable/${ide_ver}-${ide_build}/linux-arm/Antigravity%20IDE.tar.gz" "$IDE_ARCHIVE" || die "IDE: Download failed."
 
     # Extract
     info "Extracting $IDE_ARCHIVE..."
@@ -1482,7 +1782,7 @@ TOTAL_TASKS=${#QUEUE[@]}
 CURRENT_TASK=0
 
 # Compile shared compatibility layer if needed
-if [[ $RUN_IDE_INSTALL -eq 1 ]]; then
+if [[ $TOTAL_TASKS -gt 0 ]]; then
   info "Compiling mmap compatibility layer..."
   "$local_cc" -O2 -fPIC -shared -o "${BUILD_DIR}/libmmap_va39_fix.so" "${BUILD_DIR}/mmap_va39_fix.c" -ldl
 fi
@@ -1516,33 +1816,33 @@ fi
 echo ""
 sep
 if [[ $ALL_SUCCESS -eq 1 ]]; then
-  printf '  %b\n' "${G}${B}Installation completed successfully!${N}"
+  ok "${B}Installation completed successfully!${N}"
 else
-  printf '  %b\n' "${Y}${B}Installation completed with errors.${N}"
+  warn "${B}Installation completed with errors.${N}"
 fi
 
 # Print status of each component
 if [[ $RUN_CLI_INSTALL -eq 1 ]]; then
   if [[ "$CLI_INSTALL_STATUS" == "success" ]]; then
-    printf '  %b\n' "${G}✓${N} CLI: Installed successfully (${D}${INSTALL_BIN_DIR}/agy${N})"
+    ok "CLI: Installed successfully (${D}${INSTALL_BIN_DIR}/agy${N})"
   else
-    printf '  %b\n' "${R}✗${N} CLI: Installation failed (reverted)"
+    err "CLI: Installation failed (reverted)"
   fi
 fi
 
 if [[ $RUN_IDE_INSTALL -eq 1 ]]; then
   if [[ "$IDE_INSTALL_STATUS" == "success" ]]; then
-    printf '  %b\n' "${G}✓${N} IDE: Installed successfully (${D}${INSTALL_BIN_DIR}/antigravity-ide${N})"
+    ok "IDE: Installed successfully (${D}${INSTALL_BIN_DIR}/antigravity-ide${N})"
   else
-    printf '  %b\n' "${R}✗${N} IDE: Installation failed (reverted)"
+    err "IDE: Installation failed (reverted)"
   fi
 fi
 
 if [[ $RUN_DESKTOP_INSTALL -eq 1 ]]; then
   if [[ "$DESKTOP_INSTALL_STATUS" == "success" ]]; then
-    printf '  %b\n' "${G}✓${N} Desktop: Installed successfully (${D}${INSTALL_BIN_DIR}/antigravity${N})"
+    ok "Desktop: Installed successfully (${D}${INSTALL_BIN_DIR}/antigravity${N})"
   else
-    printf '  %b\n' "${R}✗${N} Desktop: Installation failed (reverted)"
+    err "Desktop: Installation failed (reverted)"
   fi
 fi
 
@@ -1556,8 +1856,9 @@ if [[ $ANY_SUCCESS -eq 1 ]]; then
   case ":$PATH:" in
     *":$INSTALL_BIN_DIR:"*) ;;
     *)
-      printf '\n  %b\n' "${R}!${N} ${B}${INSTALL_BIN_DIR}${N} is not in your PATH."
-      printf '  %b\n' "${D}Add to ~/.bashrc:${N}  export PATH=\"${INSTALL_BIN_DIR}:\$PATH\""
+      printf '\n'
+      warn "${B}${INSTALL_BIN_DIR}${N} is not in your PATH."
+      info "Add to ~/.bashrc:  ${B}export PATH=\"${INSTALL_BIN_DIR}:\$PATH\"${N}"
       ;;
   esac
 fi
