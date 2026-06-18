@@ -1,4 +1,29 @@
-#!/usr/bin/env bash
+#!/bin/sh
+# If we are not running in bash, try to run in bash
+if [ -z "$BASH_VERSION" ]; then
+  if command -v bash >/dev/null 2>&1; then
+    exec bash "$0" "$@"
+  else
+    echo "  \033[33m⚠\033[0m bash is required but not installed."
+    if [ -f /etc/alpine-release ] && command -v apk >/dev/null 2>&1; then
+      echo "  Attempting to install bash via apk..."
+      if [ "$(id -u)" -eq 0 ]; then
+        apk add bash || exit 1
+        exec bash "$0" "$@"
+      elif command -v sudo >/dev/null 2>&1; then
+        sudo apk add bash || exit 1
+        exec bash "$0" "$@"
+      else
+        echo "  Please run as root or install bash manually."
+        exit 1
+      fi
+    else
+      echo "  Please install bash manually and re-run this script."
+      exit 1
+    fi
+  fi
+fi
+
 # Antigravity - All-in-One Termux Installer
 # Installs CLI, IDE, and/or Antigravity 2.0 Desktop in a single run.
 set -Eeuo pipefail
@@ -891,9 +916,23 @@ if [[ $RUN_CLI_INSTALL -eq 0 && $RUN_DESKTOP_INSTALL -eq 0 && $RUN_IDE_INSTALL -
 fi
 
 # ── Prerequisite Checks & Package Manager Prompts Upfront ─────────────────────
+has_compiler() {
+  if [[ "$ENV_TYPE" == "termux" ]]; then
+    [[ -x "/data/data/com.termux/files/usr/bin/clang" ]]
+  else
+    command -v clang &>/dev/null || command -v gcc &>/dev/null || command -v cc &>/dev/null
+  fi
+}
+
 detect_compiler() {
   if [[ "$ENV_TYPE" == "termux" ]]; then
     echo "/data/data/com.termux/files/usr/bin/clang"
+  elif command -v clang &>/dev/null; then
+    echo "clang"
+  elif command -v gcc &>/dev/null; then
+    echo "gcc"
+  elif command -v cc &>/dev/null; then
+    echo "cc"
   else
     echo "clang"
   fi
@@ -906,9 +945,17 @@ check_and_install_dependencies() {
   else
     # Base dependencies needed by everything (including CLI on PRoot/Linux)
     deps=("python3" "tar" "wget" "jq")
-    # Compiler (clang) only needed if IDE or Desktop is selected
+    
+    # On Alpine, we need gcompat for glibc compatibility
+    if [[ -f /etc/alpine-release ]] || command -v apk &>/dev/null; then
+      deps+=("gcompat")
+    fi
+
+    # Compiler only needed if IDE or Desktop is selected, and no compiler is installed
     if [[ $RUN_IDE_INSTALL -eq 1 || $RUN_DESKTOP_INSTALL -eq 1 ]]; then
-      deps+=("clang")
+      if ! has_compiler; then
+        deps+=("clang")
+      fi
     fi
   fi
   
@@ -940,21 +987,41 @@ check_and_install_dependencies() {
     done
 
     # Check privilege helper (use sudo if available and we're not root)
+    local euid
+    euid=$(id -u 2>/dev/null || echo "${EUID:-}")
     local helper=""
-    [[ "$EUID" -ne 0 ]] && command -v sudo &>/dev/null && helper="sudo "
+    [[ "$euid" -ne 0 ]] && command -v sudo &>/dev/null && helper="sudo "
     local show_cmd="" run_cmd=""
     if command -v apt-get &>/dev/null; then
       show_cmd="${helper}apt-get update && ${helper}apt-get install -y ${target_deps[*]}"
       run_cmd="${helper}DEBIAN_FRONTEND=noninteractive apt-get update && ${helper}DEBIAN_FRONTEND=noninteractive apt-get install -y ${target_deps[*]}"
     elif command -v apk &>/dev/null; then
-      show_cmd="${helper}apk add ${target_deps[*]}"
-      run_cmd="${helper}apk add ${target_deps[*]}"
+      show_cmd="${helper}apk update && ${helper}apk add ${target_deps[*]}"
+      run_cmd="${helper}apk update && ${helper}apk add ${target_deps[*]}"
     elif command -v pacman &>/dev/null; then
       show_cmd="${helper}pacman -Sy --noconfirm ${target_deps[*]}"
       run_cmd="${helper}pacman -Sy --noconfirm ${target_deps[*]}"
     elif command -v dnf &>/dev/null; then
       show_cmd="${helper}dnf install -y ${target_deps[*]}"
       run_cmd="${helper}dnf install -y ${target_deps[*]}"
+    elif command -v yum &>/dev/null; then
+      show_cmd="${helper}yum install -y ${target_deps[*]}"
+      run_cmd="${helper}yum install -y ${target_deps[*]}"
+    elif command -v zypper &>/dev/null; then
+      show_cmd="${helper}zypper install -y ${target_deps[*]}"
+      run_cmd="${helper}zypper --non-interactive install ${target_deps[*]}"
+    elif command -v xbps-install &>/dev/null; then
+      show_cmd="${helper}xbps-install -S ${target_deps[*]}"
+      run_cmd="${helper}xbps-install -y -S ${target_deps[*]}"
+    elif command -v emerge &>/dev/null; then
+      show_cmd="${helper}emerge --ask --verbose ${target_deps[*]}"
+      run_cmd="${helper}emerge --oneshot ${target_deps[*]}"
+    elif command -v eopkg &>/dev/null; then
+      show_cmd="${helper}eopkg install ${target_deps[*]}"
+      run_cmd="${helper}eopkg install -y ${target_deps[*]}"
+    elif command -v nix-env &>/dev/null; then
+      show_cmd="nix-env -iA nixpkgs.${target_deps[*]}"
+      run_cmd="nix-env -iA nixpkgs.${target_deps[*]}"
     fi
     [[ -z "$show_cmd" ]] && die "No supported package manager found. Please install manually: ${target_deps[*]}"
     
@@ -1053,9 +1120,7 @@ int main(int argc, char **argv) {
     char exec_path[PATH_MAX];
     char patched_bin[PATH_MAX];
     char lib_path[PATH_MAX * 3];
-    const char *loader_primary   = "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1";
-    const char *loader_fallback  = "/lib/ld-linux-aarch64.so.1";
-    const char *loader;
+    const char *loader = NULL;
     const char *dir;
     const char *interposer;
     char **new_argv;
@@ -1098,10 +1163,21 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (access(loader_primary, F_OK) == 0) {
-        loader = loader_primary;
-    } else {
-        loader = loader_fallback;
+    const char *loaders[] = {
+        "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1",
+        "/lib/ld-linux-aarch64.so.1",
+        "/lib64/ld-linux-aarch64.so.1",
+        "/usr/lib/ld-linux-aarch64.so.1",
+        "/usr/lib64/ld-linux-aarch64.so.1"
+    };
+    for (size_t i = 0; i < sizeof(loaders) / sizeof(loaders[0]); i++) {
+        if (access(loaders[i], F_OK) == 0) {
+            loader = loaders[i];
+            break;
+        }
+    }
+    if (!loader) {
+        loader = "/lib/ld-linux-aarch64.so.1";
     }
 
     if (access("/data/data/com.termux/files/usr/glibc/lib", F_OK) == 0) {
@@ -1340,7 +1416,7 @@ int main(int argc, char **argv) {
     char exec_path[PATH_MAX];
     char lib_path[PATH_MAX * 3];
     char patched_bin[PATH_MAX];
-    const char *loader = "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1";
+    const char *loader = NULL;
     const char *dir = NULL;
     const char *fixer_path = NULL;
     char **new_argv = NULL;
@@ -1386,7 +1462,20 @@ int main(int argc, char **argv) {
     }
 
     // 7. Resolve dynamic loader path
-    if (access(loader, F_OK) != 0) {
+    const char *loaders[] = {
+        "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1",
+        "/lib/ld-linux-aarch64.so.1",
+        "/lib64/ld-linux-aarch64.so.1",
+        "/usr/lib/ld-linux-aarch64.so.1",
+        "/usr/lib64/ld-linux-aarch64.so.1"
+    };
+    for (size_t i = 0; i < sizeof(loaders) / sizeof(loaders[0]); i++) {
+        if (access(loaders[i], F_OK) == 0) {
+            loader = loaders[i];
+            break;
+        }
+    }
+    if (!loader) {
         loader = "/lib/ld-linux-aarch64.so.1";
     }
 
@@ -1672,9 +1761,11 @@ elif [[ -f "/etc/ssl/certs/ca-certificates.crt" ]]; then
 fi
 export LIBGL_ALWAYS_SOFTWARE=1
 export ELECTRON_ENABLE_LOGGING=1
-eval $(gnome-keyring-daemon --start --components=secrets)
-export DBUS_SESSION_BUS_ADDRESS
-echo -n "" | gnome-keyring-daemon --unlock || true
+if command -v gnome-keyring-daemon &>/dev/null; then
+    eval $(gnome-keyring-daemon --start --components=secrets 2>/dev/null) || true
+    export DBUS_SESSION_BUS_ADDRESS
+    echo -n "" | gnome-keyring-daemon --unlock 2>/dev/null || true
+fi
 exec "$APP_DIR/antigravity" \
     --no-sandbox --disable-gpu --disable-gpu-compositing \
     --disable-gpu-rasterization --disable-dev-shm-usage \
