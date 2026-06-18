@@ -55,6 +55,26 @@ if [[ "$ENV_TYPE" == "unknown" ]]; then
   fi
 fi
 
+DISTRO="unknown"
+if [[ "$ENV_TYPE" == "linux" || "$ENV_TYPE" == "proot" ]]; then
+  if [[ -f /etc/os-release ]]; then
+    DISTRO=$(awk -F= '/^ID=/ {print $2}' /etc/os-release | tr -d '"'\''')
+  elif [[ -f /etc/alpine-release ]]; then
+    DISTRO="alpine"
+  elif [[ -f /etc/debian_version ]]; then
+    DISTRO="debian"
+  elif [[ -f /etc/arch-release ]]; then
+    DISTRO="arch"
+  elif [[ -f /etc/gentoo-release ]]; then
+    DISTRO="gentoo"
+  fi
+fi
+
+ENV_DISPLAY="$ENV_TYPE"
+if [[ "$DISTRO" != "unknown" ]]; then
+  ENV_DISPLAY="$ENV_TYPE ($DISTRO)"
+fi
+
 if [[ "$ENV_TYPE" == "termux" ]]; then
   TERMUX_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
   INSTALL_BIN_DIR="${TERMUX_PREFIX}/bin"
@@ -780,7 +800,7 @@ EOF
 logo_cols=$(tput cols </dev/tty 2>/dev/null || echo 60)
 # Disable line wrapping so terminal resize doesn't corrupt the logo
 printf '\033[?7l'
-awk -v cols="$logo_cols" -v env="${ENV_TYPE}" -v bold="${B}${C}" -v dim="${D}" -v rst="${N}" '
+awk -v cols="$logo_cols" -v env="${ENV_DISPLAY}" -v bold="${B}${C}" -v dim="${D}" -v rst="${N}" '
 {
   sub(/\r$/, "");
   if (cols >= 48) {
@@ -947,7 +967,7 @@ check_and_install_dependencies() {
     deps=("python3" "tar" "wget" "jq")
     
     # On Alpine, we need gcompat for glibc compatibility
-    if [[ -f /etc/alpine-release ]] || command -v apk &>/dev/null; then
+    if [[ "$DISTRO" == "alpine" ]] || [[ -f /etc/alpine-release ]] || command -v apk &>/dev/null; then
       deps+=("gcompat")
     fi
 
@@ -992,37 +1012,98 @@ check_and_install_dependencies() {
     local helper=""
     [[ "$euid" -ne 0 ]] && command -v sudo &>/dev/null && helper="sudo "
     local show_cmd="" run_cmd=""
-    if command -v apt-get &>/dev/null; then
-      show_cmd="${helper}apt-get update && ${helper}apt-get install -y ${target_deps[*]}"
-      run_cmd="${helper}DEBIAN_FRONTEND=noninteractive apt-get update && ${helper}DEBIAN_FRONTEND=noninteractive apt-get install -y ${target_deps[*]}"
-    elif command -v apk &>/dev/null; then
-      show_cmd="${helper}apk update && ${helper}apk add ${target_deps[*]}"
-      run_cmd="${helper}apk update && ${helper}apk add ${target_deps[*]}"
-    elif command -v pacman &>/dev/null; then
-      show_cmd="${helper}pacman -Sy --noconfirm ${target_deps[*]}"
-      run_cmd="${helper}pacman -Sy --noconfirm ${target_deps[*]}"
-    elif command -v dnf &>/dev/null; then
-      show_cmd="${helper}dnf install -y ${target_deps[*]}"
-      run_cmd="${helper}dnf install -y ${target_deps[*]}"
-    elif command -v yum &>/dev/null; then
-      show_cmd="${helper}yum install -y ${target_deps[*]}"
-      run_cmd="${helper}yum install -y ${target_deps[*]}"
-    elif command -v zypper &>/dev/null; then
-      show_cmd="${helper}zypper install -y ${target_deps[*]}"
-      run_cmd="${helper}zypper --non-interactive install ${target_deps[*]}"
-    elif command -v xbps-install &>/dev/null; then
-      show_cmd="${helper}xbps-install -S ${target_deps[*]}"
-      run_cmd="${helper}xbps-install -y -S ${target_deps[*]}"
-    elif command -v emerge &>/dev/null; then
-      show_cmd="${helper}emerge --ask --verbose ${target_deps[*]}"
-      run_cmd="${helper}emerge --oneshot ${target_deps[*]}"
-    elif command -v eopkg &>/dev/null; then
-      show_cmd="${helper}eopkg install ${target_deps[*]}"
-      run_cmd="${helper}eopkg install -y ${target_deps[*]}"
-    elif command -v nix-env &>/dev/null; then
-      show_cmd="nix-env -iA nixpkgs.${target_deps[*]}"
-      run_cmd="nix-env -iA nixpkgs.${target_deps[*]}"
+
+    # Select package manager based on detected DISTRO first, fallback to command -v checks
+    local pm=""
+    if [[ "$DISTRO" == "alpine" ]]; then
+      pm="apk"
+    elif [[ "$DISTRO" == "debian" || "$DISTRO" == "ubuntu" || "$DISTRO" == "kali" || "$DISTRO" == "raspbian" ]]; then
+      pm="apt-get"
+    elif [[ "$DISTRO" == "arch" || "$DISTRO" == "manjaro" ]]; then
+      pm="pacman"
+    elif [[ "$DISTRO" == "fedora" ]]; then
+      pm="dnf"
+    elif [[ "$DISTRO" == "centos" || "$DISTRO" == "rhel" ]]; then
+      pm="yum"
+    elif [[ "$DISTRO" == "opensuse" || "$DISTRO" == "suse" ]]; then
+      pm="zypper"
+    elif [[ "$DISTRO" == "void" ]]; then
+      pm="xbps-install"
+    elif [[ "$DISTRO" == "gentoo" ]]; then
+      pm="emerge"
+    elif [[ "$DISTRO" == "solus" ]]; then
+      pm="eopkg"
+    elif [[ "$DISTRO" == "nixos" ]]; then
+      pm="nix-env"
     fi
+
+    # Fallback to command existence checks if DISTRO didn't map to a specific package manager
+    if [[ -z "$pm" ]]; then
+      if command -v apk &>/dev/null; then
+        pm="apk"
+      elif command -v apt-get &>/dev/null; then
+        pm="apt-get"
+      elif command -v pacman &>/dev/null; then
+        pm="pacman"
+      elif command -v dnf &>/dev/null; then
+        pm="dnf"
+      elif command -v yum &>/dev/null; then
+        pm="yum"
+      elif command -v zypper &>/dev/null; then
+        pm="zypper"
+      elif command -v xbps-install &>/dev/null; then
+        pm="xbps-install"
+      elif command -v emerge &>/dev/null; then
+        pm="emerge"
+      elif command -v eopkg &>/dev/null; then
+        pm="eopkg"
+      elif command -v nix-env &>/dev/null; then
+        pm="nix-env"
+      fi
+    fi
+
+    case "$pm" in
+      apt-get)
+        show_cmd="${helper}apt-get update && ${helper}apt-get install -y ${target_deps[*]}"
+        run_cmd="${helper}DEBIAN_FRONTEND=noninteractive apt-get update && ${helper}DEBIAN_FRONTEND=noninteractive apt-get install -y ${target_deps[*]}"
+        ;;
+      apk)
+        show_cmd="${helper}apk update && ${helper}apk add ${target_deps[*]}"
+        run_cmd="${helper}apk update && ${helper}apk add ${target_deps[*]}"
+        ;;
+      pacman)
+        show_cmd="${helper}pacman -Sy --noconfirm ${target_deps[*]}"
+        run_cmd="${helper}pacman -Sy --noconfirm ${target_deps[*]}"
+        ;;
+      dnf)
+        show_cmd="${helper}dnf install -y ${target_deps[*]}"
+        run_cmd="${helper}dnf install -y ${target_deps[*]}"
+        ;;
+      yum)
+        show_cmd="${helper}yum install -y ${target_deps[*]}"
+        run_cmd="${helper}yum install -y ${target_deps[*]}"
+        ;;
+      zypper)
+        show_cmd="${helper}zypper install -y ${target_deps[*]}"
+        run_cmd="${helper}zypper --non-interactive install ${target_deps[*]}"
+        ;;
+      xbps-install)
+        show_cmd="${helper}xbps-install -S ${target_deps[*]}"
+        run_cmd="${helper}xbps-install -y -S ${target_deps[*]}"
+        ;;
+      emerge)
+        show_cmd="${helper}emerge --ask --verbose ${target_deps[*]}"
+        run_cmd="${helper}emerge --oneshot ${target_deps[*]}"
+        ;;
+      eopkg)
+        show_cmd="${helper}eopkg install ${target_deps[*]}"
+        run_cmd="${helper}eopkg install -y ${target_deps[*]}"
+        ;;
+      nix-env)
+        show_cmd="nix-env -iA nixpkgs.${target_deps[*]}"
+        run_cmd="nix-env -iA nixpkgs.${target_deps[*]}"
+        ;;
+    esac
     [[ -z "$show_cmd" ]] && die "No supported package manager found. Please install manually: ${target_deps[*]}"
     
     warn "Forcing installation/update of dependencies..."
