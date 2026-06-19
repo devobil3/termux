@@ -1,29 +1,4 @@
-#!/bin/sh
-# If we are not running in bash, try to run in bash
-if [ -z "$BASH_VERSION" ]; then
-  if command -v bash >/dev/null 2>&1; then
-    exec bash "$0" "$@"
-  else
-    echo "  \033[33m⚠\033[0m bash is required but not installed."
-    if [ -f /etc/alpine-release ] && command -v apk >/dev/null 2>&1; then
-      echo "  Attempting to install bash via apk..."
-      if [ "$(id -u)" -eq 0 ]; then
-        apk add bash || exit 1
-        exec bash "$0" "$@"
-      elif command -v sudo >/dev/null 2>&1; then
-        sudo apk add bash || exit 1
-        exec bash "$0" "$@"
-      else
-        echo "  Please run as root or install bash manually."
-        exit 1
-      fi
-    else
-      echo "  Please install bash manually and re-run this script."
-      exit 1
-    fi
-  fi
-fi
-
+#!/usr/bin/env bash
 # Antigravity - All-in-One Termux Installer
 # Installs CLI, IDE, and/or Antigravity 2.0 Desktop in a single run.
 set -Eeuo pipefail
@@ -46,33 +21,32 @@ case "$tn" in
     ;;
 esac
 
-if [[ "$ENV_TYPE" == "unknown" ]]; then
-  if [[ "$(uname -s)" == "Linux" ]]; then
-    ENV_TYPE="linux"
-  else
-    printf "  \033[31m✖\033[0m This script requires Linux (native Termux, PRoot, or generic Linux).\n" >&2
+# Check OS distribution if we are in proot (must be Debian or Ubuntu)
+if [[ "$ENV_TYPE" == "proot" ]]; then
+  IS_DEBIAN_UBUNTU=0
+  if [[ -f /etc/os-release ]]; then
+    OS_ID=""
+    OS_ID_LIKE=""
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^ID=(.*) ]]; then
+        OS_ID="${BASH_REMATCH[1]}"
+        OS_ID="${OS_ID//[\"\']/}"
+      elif [[ "$line" =~ ^ID_LIKE=(.*) ]]; then
+        OS_ID_LIKE="${BASH_REMATCH[1]}"
+        OS_ID_LIKE="${OS_ID_LIKE//[\"\']/}"
+      fi
+    done < /etc/os-release
+    if [[ "$OS_ID" == "debian" || "$OS_ID" == "ubuntu" || "$OS_ID_LIKE" == *"debian"* || "$OS_ID_LIKE" == *"ubuntu"* ]]; then
+      IS_DEBIAN_UBUNTU=1
+    fi
+  fi
+  if [[ $IS_DEBIAN_UBUNTU -ne 1 ]]; then
+    printf "  \033[31m✖\033[0m PRoot environment must be Debian or Ubuntu.\n" >&2
     exit 1
   fi
-fi
-
-DISTRO="unknown"
-if [[ "$ENV_TYPE" == "linux" || "$ENV_TYPE" == "proot" ]]; then
-  if [[ -f /etc/os-release ]]; then
-    DISTRO=$(awk -F= '/^ID=/ {print $2}' /etc/os-release | tr -d '"'\''')
-  elif [[ -f /etc/alpine-release ]]; then
-    DISTRO="alpine"
-  elif [[ -f /etc/debian_version ]]; then
-    DISTRO="debian"
-  elif [[ -f /etc/arch-release ]]; then
-    DISTRO="arch"
-  elif [[ -f /etc/gentoo-release ]]; then
-    DISTRO="gentoo"
-  fi
-fi
-
-ENV_DISPLAY="$ENV_TYPE"
-if [[ "$DISTRO" != "unknown" ]]; then
-  ENV_DISPLAY="$ENV_TYPE ($DISTRO)"
+elif [[ "$ENV_TYPE" != "termux" ]]; then
+  printf "  \033[31m✖\033[0m This script only supports native Termux or PRoot Debian/Ubuntu.\n" >&2
+  exit 1
 fi
 
 if [[ "$ENV_TYPE" == "termux" ]]; then
@@ -800,7 +774,7 @@ EOF
 logo_cols=$(tput cols </dev/tty 2>/dev/null || echo 60)
 # Disable line wrapping so terminal resize doesn't corrupt the logo
 printf '\033[?7l'
-awk -v cols="$logo_cols" -v env="${ENV_DISPLAY}" -v bold="${B}${C}" -v dim="${D}" -v rst="${N}" '
+awk -v cols="$logo_cols" -v env="${ENV_TYPE}" -v bold="${B}${C}" -v dim="${D}" -v rst="${N}" '
 {
   sub(/\r$/, "");
   if (cols >= 48) {
@@ -936,23 +910,9 @@ if [[ $RUN_CLI_INSTALL -eq 0 && $RUN_DESKTOP_INSTALL -eq 0 && $RUN_IDE_INSTALL -
 fi
 
 # ── Prerequisite Checks & Package Manager Prompts Upfront ─────────────────────
-has_compiler() {
-  if [[ "$ENV_TYPE" == "termux" ]]; then
-    [[ -x "/data/data/com.termux/files/usr/bin/clang" ]]
-  else
-    command -v clang &>/dev/null || command -v gcc &>/dev/null || command -v cc &>/dev/null
-  fi
-}
-
 detect_compiler() {
   if [[ "$ENV_TYPE" == "termux" ]]; then
     echo "/data/data/com.termux/files/usr/bin/clang"
-  elif command -v clang &>/dev/null; then
-    echo "clang"
-  elif command -v gcc &>/dev/null; then
-    echo "gcc"
-  elif command -v cc &>/dev/null; then
-    echo "cc"
   else
     echo "clang"
   fi
@@ -963,19 +923,11 @@ check_and_install_dependencies() {
   if [[ "$ENV_TYPE" == "termux" ]]; then
     deps=("python" "tar" "wget" "jq" "clang" "glibc-repo" "glibc")
   else
-    # Base dependencies needed by everything (including CLI on PRoot/Linux)
+    # Base dependencies needed by everything (including CLI on PRoot)
     deps=("python3" "tar" "wget" "jq")
-    
-    # On Alpine, we need gcompat for glibc compatibility
-    if [[ "$DISTRO" == "alpine" ]] || [[ -f /etc/alpine-release ]] || command -v apk &>/dev/null; then
-      deps+=("gcompat")
-    fi
-
-    # Compiler only needed if IDE or Desktop is selected, and no compiler is installed
+    # Compiler (clang) only needed if IDE or Desktop is selected
     if [[ $RUN_IDE_INSTALL -eq 1 || $RUN_DESKTOP_INSTALL -eq 1 ]]; then
-      if ! has_compiler; then
-        deps+=("clang")
-      fi
+      deps+=("clang")
     fi
   fi
   
@@ -995,116 +947,19 @@ check_and_install_dependencies() {
   else
     local target_deps=()
     for d in "${deps[@]}"; do
-      if [[ "$d" == "python3" ]]; then
-        if command -v pacman &>/dev/null; then
-          target_deps+=("python")
-        else
-          target_deps+=("python3")
-        fi
-      else
-        target_deps+=("$d")
-      fi
+      target_deps+=("$d")
     done
 
     # Check privilege helper (use sudo if available and we're not root)
-    local euid
-    euid=$(id -u 2>/dev/null || echo "${EUID:-}")
     local helper=""
-    [[ "$euid" -ne 0 ]] && command -v sudo &>/dev/null && helper="sudo "
+    [[ "$EUID" -ne 0 ]] && command -v sudo &>/dev/null && helper="sudo "
     local show_cmd="" run_cmd=""
-
-    # Select package manager based on detected DISTRO first, fallback to command -v checks
-    local pm=""
-    if [[ "$DISTRO" == "alpine" ]]; then
-      pm="apk"
-    elif [[ "$DISTRO" == "debian" || "$DISTRO" == "ubuntu" || "$DISTRO" == "kali" || "$DISTRO" == "raspbian" ]]; then
-      pm="apt-get"
-    elif [[ "$DISTRO" == "arch" || "$DISTRO" == "manjaro" ]]; then
-      pm="pacman"
-    elif [[ "$DISTRO" == "fedora" ]]; then
-      pm="dnf"
-    elif [[ "$DISTRO" == "centos" || "$DISTRO" == "rhel" ]]; then
-      pm="yum"
-    elif [[ "$DISTRO" == "opensuse" || "$DISTRO" == "suse" ]]; then
-      pm="zypper"
-    elif [[ "$DISTRO" == "void" ]]; then
-      pm="xbps-install"
-    elif [[ "$DISTRO" == "gentoo" ]]; then
-      pm="emerge"
-    elif [[ "$DISTRO" == "solus" ]]; then
-      pm="eopkg"
-    elif [[ "$DISTRO" == "nixos" ]]; then
-      pm="nix-env"
+    if command -v apt-get &>/dev/null; then
+      show_cmd="${helper}apt-get update && ${helper}apt-get install -y ${target_deps[*]}"
+      run_cmd="${helper}DEBIAN_FRONTEND=noninteractive apt-get update && ${helper}DEBIAN_FRONTEND=noninteractive apt-get install -y ${target_deps[*]}"
+    else
+      die "apt-get is required but not found. Please ensure you are running in Debian/Ubuntu."
     fi
-
-    # Fallback to command existence checks if DISTRO didn't map to a specific package manager
-    if [[ -z "$pm" ]]; then
-      if command -v apk &>/dev/null; then
-        pm="apk"
-      elif command -v apt-get &>/dev/null; then
-        pm="apt-get"
-      elif command -v pacman &>/dev/null; then
-        pm="pacman"
-      elif command -v dnf &>/dev/null; then
-        pm="dnf"
-      elif command -v yum &>/dev/null; then
-        pm="yum"
-      elif command -v zypper &>/dev/null; then
-        pm="zypper"
-      elif command -v xbps-install &>/dev/null; then
-        pm="xbps-install"
-      elif command -v emerge &>/dev/null; then
-        pm="emerge"
-      elif command -v eopkg &>/dev/null; then
-        pm="eopkg"
-      elif command -v nix-env &>/dev/null; then
-        pm="nix-env"
-      fi
-    fi
-
-    case "$pm" in
-      apt-get)
-        show_cmd="${helper}apt-get update && ${helper}apt-get install -y ${target_deps[*]}"
-        run_cmd="${helper}DEBIAN_FRONTEND=noninteractive apt-get update && ${helper}DEBIAN_FRONTEND=noninteractive apt-get install -y ${target_deps[*]}"
-        ;;
-      apk)
-        show_cmd="${helper}apk update && ${helper}apk add ${target_deps[*]}"
-        run_cmd="${helper}apk update && ${helper}apk add ${target_deps[*]}"
-        ;;
-      pacman)
-        show_cmd="${helper}pacman -Sy --noconfirm ${target_deps[*]}"
-        run_cmd="${helper}pacman -Sy --noconfirm ${target_deps[*]}"
-        ;;
-      dnf)
-        show_cmd="${helper}dnf install -y ${target_deps[*]}"
-        run_cmd="${helper}dnf install -y ${target_deps[*]}"
-        ;;
-      yum)
-        show_cmd="${helper}yum install -y ${target_deps[*]}"
-        run_cmd="${helper}yum install -y ${target_deps[*]}"
-        ;;
-      zypper)
-        show_cmd="${helper}zypper install -y ${target_deps[*]}"
-        run_cmd="${helper}zypper --non-interactive install ${target_deps[*]}"
-        ;;
-      xbps-install)
-        show_cmd="${helper}xbps-install -S ${target_deps[*]}"
-        run_cmd="${helper}xbps-install -y -S ${target_deps[*]}"
-        ;;
-      emerge)
-        show_cmd="${helper}emerge --ask --verbose ${target_deps[*]}"
-        run_cmd="${helper}emerge --oneshot ${target_deps[*]}"
-        ;;
-      eopkg)
-        show_cmd="${helper}eopkg install ${target_deps[*]}"
-        run_cmd="${helper}eopkg install -y ${target_deps[*]}"
-        ;;
-      nix-env)
-        show_cmd="nix-env -iA nixpkgs.${target_deps[*]}"
-        run_cmd="nix-env -iA nixpkgs.${target_deps[*]}"
-        ;;
-    esac
-    [[ -z "$show_cmd" ]] && die "No supported package manager found. Please install manually: ${target_deps[*]}"
     
     warn "Forcing installation/update of dependencies..."
     printf '  %b\n\n' "${D}$ ${N}${show_cmd}"
@@ -1201,7 +1056,9 @@ int main(int argc, char **argv) {
     char exec_path[PATH_MAX];
     char patched_bin[PATH_MAX];
     char lib_path[PATH_MAX * 3];
-    const char *loader = NULL;
+    const char *loader_primary   = "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1";
+    const char *loader_fallback  = "/lib/ld-linux-aarch64.so.1";
+    const char *loader;
     const char *dir;
     const char *interposer;
     char **new_argv;
@@ -1244,21 +1101,10 @@ int main(int argc, char **argv) {
         }
     }
 
-    const char *loaders[] = {
-        "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1",
-        "/lib/ld-linux-aarch64.so.1",
-        "/lib64/ld-linux-aarch64.so.1",
-        "/usr/lib/ld-linux-aarch64.so.1",
-        "/usr/lib64/ld-linux-aarch64.so.1"
-    };
-    for (size_t i = 0; i < sizeof(loaders) / sizeof(loaders[0]); i++) {
-        if (access(loaders[i], F_OK) == 0) {
-            loader = loaders[i];
-            break;
-        }
-    }
-    if (!loader) {
-        loader = "/lib/ld-linux-aarch64.so.1";
+    if (access(loader_primary, F_OK) == 0) {
+        loader = loader_primary;
+    } else {
+        loader = loader_fallback;
     }
 
     if (access("/data/data/com.termux/files/usr/glibc/lib", F_OK) == 0) {
@@ -1497,7 +1343,7 @@ int main(int argc, char **argv) {
     char exec_path[PATH_MAX];
     char lib_path[PATH_MAX * 3];
     char patched_bin[PATH_MAX];
-    const char *loader = NULL;
+    const char *loader = "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1";
     const char *dir = NULL;
     const char *fixer_path = NULL;
     char **new_argv = NULL;
@@ -1543,20 +1389,7 @@ int main(int argc, char **argv) {
     }
 
     // 7. Resolve dynamic loader path
-    const char *loaders[] = {
-        "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1",
-        "/lib/ld-linux-aarch64.so.1",
-        "/lib64/ld-linux-aarch64.so.1",
-        "/usr/lib/ld-linux-aarch64.so.1",
-        "/usr/lib64/ld-linux-aarch64.so.1"
-    };
-    for (size_t i = 0; i < sizeof(loaders) / sizeof(loaders[0]); i++) {
-        if (access(loaders[i], F_OK) == 0) {
-            loader = loaders[i];
-            break;
-        }
-    }
-    if (!loader) {
+    if (access(loader, F_OK) != 0) {
         loader = "/lib/ld-linux-aarch64.so.1";
     }
 
@@ -1842,11 +1675,9 @@ elif [[ -f "/etc/ssl/certs/ca-certificates.crt" ]]; then
 fi
 export LIBGL_ALWAYS_SOFTWARE=1
 export ELECTRON_ENABLE_LOGGING=1
-if command -v gnome-keyring-daemon &>/dev/null; then
-    eval $(gnome-keyring-daemon --start --components=secrets 2>/dev/null) || true
-    export DBUS_SESSION_BUS_ADDRESS
-    echo -n "" | gnome-keyring-daemon --unlock 2>/dev/null || true
-fi
+eval $(gnome-keyring-daemon --start --components=secrets)
+export DBUS_SESSION_BUS_ADDRESS
+echo -n "" | gnome-keyring-daemon --unlock || true
 exec "$APP_DIR/antigravity" \
     --no-sandbox --disable-gpu --disable-gpu-compositing \
     --disable-gpu-rasterization --disable-dev-shm-usage \
