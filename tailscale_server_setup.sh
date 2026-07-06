@@ -212,12 +212,18 @@ GatewayPorts yes
 Subsystem sftp $PREFIX/libexec/sftp-server
 EOF
 
-    # Set a password for the Termux user if not already set
-    echo ""
-    warn "Set your Termux SSH password (used to log in from Android B):"
-    passwd
-
     success "OpenSSH configured in Termux on port $SSH_PORT."
+    echo ""
+    echo -e "${BOLD}${YELLOW}┌─────────────────────────────────────────────────────────┐${RESET}"
+    echo -e "${BOLD}${YELLOW}│  ACTION REQUIRED: Set your Termux SSH password           │${RESET}"
+    echo -e "${BOLD}${YELLOW}│                                                          │${RESET}"
+    echo -e "${BOLD}${YELLOW}│  Run this command NOW (after the script finishes):        │${RESET}"
+    echo -e "${BOLD}${YELLOW}│                                                          │${RESET}"
+    echo -e "${BOLD}${YELLOW}│    passwd                                                │${RESET}"
+    echo -e "${BOLD}${YELLOW}│                                                          │${RESET}"
+    echo -e "${BOLD}${YELLOW}│  Android B will use this password to SSH in.             │${RESET}"
+    echo -e "${BOLD}${YELLOW}└─────────────────────────────────────────────────────────┘${RESET}"
+    echo ""
 fi
 
 # ════════════════════════════════════════════════════════════════════
