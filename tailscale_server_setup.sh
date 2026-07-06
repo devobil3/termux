@@ -1,25 +1,30 @@
 #!/data/data/com.termux/files/usr/bin/env bash
 # =============================================================================
-# Tailscale SERVER Setup — Android A (Server + proot-distro)
+# Tailscale SERVER Setup — Android A
 # =============================================================================
 # This script installs and configures Tailscale in Termux on Android A, then
-# sets up OpenSSH inside the proot-distro container so it is reachable from
-# Android B over the Tailnet.
+# sets up an SSH server so Android B can connect to it over the Tailnet.
 #
 # Run this script on Android A inside Termux:
 #   bash tailscale_server_setup.sh
 #
-# Optionally specify your proot distro name (default: ubuntu):
-#   DISTRO=debian bash tailscale_server_setup.sh
+# SSH_MODE controls where sshd is installed (default: termux):
+#   SSH_MODE=termux  — install openssh directly in Termux (recommended, no proot needed)
+#   SSH_MODE=proot   — install openssh inside a proot-distro container
+#
+# Examples:
+#   bash tailscale_server_setup.sh                      # Termux SSH (default)
+#   SSH_MODE=proot DISTRO=debian bash tailscale_server_setup.sh  # proot SSH
 # =============================================================================
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # Config — edit these if needed
 # ---------------------------------------------------------------------------
-DISTRO="${DISTRO:-ubuntu}"          # proot-distro name: ubuntu / debian / fedora
+SSH_MODE="${SSH_MODE:-termux}"       # 'termux' (default) or 'proot'
+DISTRO="${DISTRO:-ubuntu}"          # proot-distro name (only used when SSH_MODE=proot)
 SOCKS5_PORT="${SOCKS5_PORT:-1055}"  # fixed SOCKS5 port for reproducibility
-SSH_PORT="${SSH_PORT:-2222}"        # port sshd listens on inside proot (host-visible)
+SSH_PORT="${SSH_PORT:-8022}"        # SSH port (Termux default: 8022, proot common: 2222)
 # ---------------------------------------------------------------------------
 
 BOLD="\033[1m"; RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; CYAN="\033[36m"; RESET="\033[0m"
@@ -127,35 +132,40 @@ read -rp "Press ENTER to run this now, or Ctrl-C to skip and run manually later.
 tailscale-cli up --hostname=android-a-server || warn "If it timed out, re-run: tailscale-cli up --hostname=android-a-server"
 
 # ════════════════════════════════════════════════════════════════════
-header "Step 6: Install and configure OpenSSH inside proot-distro"
+header "Step 6: Install and configure SSH server (mode: $SSH_MODE)"
 # ════════════════════════════════════════════════════════════════════
-info "Checking proot-distro container: $DISTRO"
-if ! proot-distro list 2>/dev/null | grep -q "$DISTRO"; then
-    die "proot-distro container '$DISTRO' is not installed. Install it with: proot-distro install $DISTRO"
-fi
 
-info "Installing openssh-server inside $DISTRO..."
-proot-distro login "$DISTRO" -- bash -c "
-    set -e
-    if command -v apt &>/dev/null; then
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update -q
-        apt-get install -y -q openssh-server sudo
-    elif command -v dnf &>/dev/null; then
-        dnf install -y -q openssh-server sudo
-    elif command -v pacman &>/dev/null; then
-        pacman -Sy --noconfirm openssh sudo
+if [ "$SSH_MODE" = "proot" ]; then
+    # ── proot-distro mode (optional) ──────────────────────────────
+    if ! command -v proot-distro &>/dev/null; then
+        warn "proot-distro is not installed. Skipping proot SSH setup."
+        warn "To enable it later: pkg install proot-distro && proot-distro install ubuntu"
+        warn "Then re-run: SSH_MODE=proot bash tailscale_server_setup.sh"
+        SSH_MODE="skip"
+    elif ! proot-distro list 2>/dev/null | grep -q "$DISTRO"; then
+        warn "proot-distro container '$DISTRO' is not installed. Skipping proot SSH setup."
+        warn "To install it: proot-distro install $DISTRO"
+        warn "Then re-run: SSH_MODE=proot DISTRO=$DISTRO bash tailscale_server_setup.sh"
+        SSH_MODE="skip"
     else
-        echo 'ERROR: No supported package manager found.'
-        exit 1
-    fi
-
-    mkdir -p /etc/ssh /run/sshd
-    if [ ! -f /etc/ssh/ssh_host_rsa_key ]; then
-        ssh-keygen -A
-    fi
-
-    cat > /etc/ssh/sshd_config <<'SSHD_EOF'
+        info "Installing openssh-server inside proot-distro ($DISTRO)..."
+        proot-distro login "$DISTRO" -- bash -c "
+            set -e
+            if command -v apt &>/dev/null; then
+                export DEBIAN_FRONTEND=noninteractive
+                apt-get update -q
+                apt-get install -y -q openssh-server sudo
+            elif command -v dnf &>/dev/null; then
+                dnf install -y -q openssh-server sudo
+            elif command -v pacman &>/dev/null; then
+                pacman -Sy --noconfirm openssh sudo
+            else
+                echo 'ERROR: No supported package manager found.'
+                exit 1
+            fi
+            mkdir -p /etc/ssh /run/sshd
+            [ ! -f /etc/ssh/ssh_host_rsa_key ] && ssh-keygen -A
+            cat > /etc/ssh/sshd_config <<'SSHD_EOF'
 Port ${SSH_PORT}
 ListenAddress 0.0.0.0
 PermitRootLogin yes
@@ -168,18 +178,86 @@ AcceptEnv LANG LC_*
 AllowTcpForwarding yes
 GatewayPorts yes
 SSHD_EOF
+            echo 'Set a root password (used to SSH in from Android B):'
+            passwd root
+        " || { warn "Failed to configure SSH inside proot-distro. Skipping."; SSH_MODE="skip"; }
+        [ "$SSH_MODE" = "proot" ] && success "OpenSSH configured inside $DISTRO on port $SSH_PORT."
+    fi
 
-    echo 'Set a root password (used to SSH in from Android B):'
-    passwd root
-" || die "Failed to configure SSH inside proot-distro."
+elif [ "$SSH_MODE" = "termux" ]; then
+    # ── Termux native mode (default) ──────────────────────────────
+    info "Installing openssh directly in Termux..."
+    pkg install -y -q openssh 2>/dev/null || true
 
-success "OpenSSH configured inside $DISTRO on port $SSH_PORT."
+    # Generate host keys if not present
+    if [ ! -f "$PREFIX/etc/ssh/ssh_host_rsa_key" ]; then
+        info "Generating SSH host keys..."
+        ssh-keygen -A 2>/dev/null || true
+    fi
+
+    # Write sshd_config for Termux (non-root, high port)
+    SSHD_CONF="$PREFIX/etc/ssh/sshd_config"
+    cat > "$SSHD_CONF" <<EOF
+Port $SSH_PORT
+ListenAddress 0.0.0.0
+PermitRootLogin no
+PasswordAuthentication yes
+ChallengeResponseAuthentication no
+UsePAM no
+X11Forwarding no
+PrintMotd no
+AcceptEnv LANG LC_*
+AllowTcpForwarding yes
+GatewayPorts yes
+Subsystem sftp $PREFIX/libexec/sftp-server
+EOF
+
+    # Set a password for the Termux user if not already set
+    echo ""
+    warn "Set your Termux SSH password (used to log in from Android B):"
+    passwd
+
+    success "OpenSSH configured in Termux on port $SSH_PORT."
+fi
 
 # ════════════════════════════════════════════════════════════════════
-header "Step 7: Create proot SSH launcher script"
+header "Step 7: Create SSH launcher script"
 # ════════════════════════════════════════════════════════════════════
-PROOT_SSH_RUNNER="$PREFIX/bin/proot-sshd-start"
-cat > "$PROOT_SSH_RUNNER" <<RUNNER_EOF
+
+if [ "$SSH_MODE" = "termux" ]; then
+    SSHD_LAUNCHER="$PREFIX/bin/termux-sshd-start"
+    cat > "$SSHD_LAUNCHER" <<RUNNER_EOF
+#!/data/data/com.termux/files/usr/bin/bash
+# Starts sshd directly in Termux (no proot needed).
+SSH_PORT="${SSH_PORT}"
+LOG="\$HOME/.tailscale/termux-sshd.log"
+
+if pgrep -f "sshd" &>/dev/null; then
+    echo "sshd is already running."
+    exit 0
+fi
+
+echo "Starting Termux sshd on port \$SSH_PORT..."
+nohup sshd -D -p "\$SSH_PORT" >> "\$LOG" 2>&1 &
+sleep 2
+
+if pgrep -f "sshd" &>/dev/null; then
+    TS_IP=\$(tailscale-cli ip -4 2>/dev/null | head -1 || echo "<tailscale-ip>")
+    WHOAMI=\$(whoami)
+    echo "sshd running. SSH in from Android B:"
+    echo "  ssh -p \$SSH_PORT \$WHOAMI@\$TS_IP"
+else
+    echo "ERROR: sshd failed to start. Check: cat \$LOG"
+    exit 1
+fi
+RUNNER_EOF
+    termux-fix-shebang "$SSHD_LAUNCHER"
+    chmod +x "$SSHD_LAUNCHER"
+    success "Created launcher: termux-sshd-start"
+
+elif [ "$SSH_MODE" = "proot" ]; then
+    SSHD_LAUNCHER="$PREFIX/bin/proot-sshd-start"
+    cat > "$SSHD_LAUNCHER" <<RUNNER_EOF
 #!/data/data/com.termux/files/usr/bin/bash
 # Starts sshd inside proot-distro (${DISTRO}), running in background.
 DISTRO="${DISTRO}"
@@ -204,15 +282,27 @@ else
     exit 1
 fi
 RUNNER_EOF
-termux-fix-shebang "$PROOT_SSH_RUNNER"
-chmod +x "$PROOT_SSH_RUNNER"
-success "Created launcher: proot-sshd-start"
+    termux-fix-shebang "$SSHD_LAUNCHER"
+    chmod +x "$SSHD_LAUNCHER"
+    success "Created launcher: proot-sshd-start"
+
+else
+    warn "SSH launcher skipped (SSH_MODE=skip). Set up SSH manually later."
+fi
 
 # ════════════════════════════════════════════════════════════════════
 header "Step 8: Summary"
 # ════════════════════════════════════════════════════════════════════
 sleep 2
 TAILSCALE_IP=$(tailscale-cli ip -4 2>/dev/null | head -1 || echo "<not yet authenticated>")
+SSH_USER=$([ "$SSH_MODE" = "termux" ] && whoami || echo "root")
+SSH_TARGET="${SSH_USER}@${TAILSCALE_IP}"
+
+case "$SSH_MODE" in
+    termux)  SSH_LAUNCHER="termux-sshd-start";  SSH_LOG="~/.tailscale/termux-sshd.log" ;;
+    proot)   SSH_LAUNCHER="proot-sshd-start";   SSH_LOG="~/.tailscale/proot-sshd.log"  ;;
+    *)       SSH_LAUNCHER="(skipped — configure SSH later)" ; SSH_LOG="n/a" ;;
+esac
 
 echo ""
 echo -e "${BOLD}${GREEN}══════════════════════════════════════════════════════════${RESET}"
@@ -221,16 +311,23 @@ echo -e "${BOLD}${GREEN}══════════════════�
 echo ""
 echo -e "  Tailscale IP   : ${BOLD}${TAILSCALE_IP}${RESET}"
 echo -e "  SOCKS5 Proxy   : ${BOLD}127.0.0.1:${SOCKS5_PORT}${RESET}"
-echo -e "  proot-distro   : ${BOLD}${DISTRO}${RESET}"
+echo -e "  SSH Mode       : ${BOLD}${SSH_MODE}${RESET}"
 echo -e "  SSH Port       : ${BOLD}${SSH_PORT}${RESET}"
+[ "$SSH_MODE" = "proot" ] && echo -e "  proot-distro   : ${BOLD}${DISTRO}${RESET}"
 echo ""
 echo -e "${BOLD}Next steps on Android A:${RESET}"
-echo "  1. Start proot SSH:   proot-sshd-start"
-echo "  2. Keep Termux open or use termux-services to auto-start tailscaled."
+echo "  1. Start SSH server:  $SSH_LAUNCHER"
+echo "  2. Keep Termux open or enable auto-start: tailscaled-start --service=on"
 echo ""
 echo -e "${BOLD}On Android B:${RESET}"
-echo "  1. Run the client setup script: bash tailscale_client_setup.sh"
-echo "  2. Then SSH in:  ssh -p ${SSH_PORT} root@${TAILSCALE_IP}"
+echo "  1. Run client setup:      bash tailscale_client_setup.sh"
+echo "  2. Then SSH in:           ssh -p ${SSH_PORT} ${SSH_TARGET}"
 echo ""
-echo -e "  Tailscale daemon logs : ${BOLD}cat ~/.tailscale/tailscaled.log${RESET}"
-echo -e "  proot sshd logs       : ${BOLD}cat ~/.tailscale/proot-sshd.log${RESET}"
+echo -e "  Tailscale logs : ${BOLD}cat ~/.tailscale/tailscaled.log${RESET}"
+echo -e "  SSH logs       : ${BOLD}cat $SSH_LOG${RESET}"
+echo ""
+if [ "$SSH_MODE" = "skip" ]; then
+    echo -e "${YELLOW}[NOTE] SSH server was not configured. To add it later:${RESET}"
+    echo "  Termux SSH:  pkg install openssh && sshd -p 8022"
+    echo "  proot SSH:   SSH_MODE=proot DISTRO=ubuntu bash tailscale_server_setup.sh"
+fi
