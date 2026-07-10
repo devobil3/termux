@@ -283,27 +283,7 @@ format_time() {
   fi
 }
 
-format_speed_apt() {
-  format_speed "$@"
-}
 
-format_time_apt() {
-  local sec="$1"
-  if (( sec < 0 )); then
-    echo "--"
-  elif (( sec >= 3600 )); then
-    local h=$((sec / 3600))
-    local m=$(( (sec % 3600) / 60 ))
-    local s=$((sec % 60))
-    printf "%dh %02dmin %02ds" $h $m $s
-  elif (( sec >= 60 )); then
-    local m=$((sec / 60))
-    local s=$((sec % 60))
-    printf "%02dmin %02ds" $m $s
-  else
-    printf "%02ds" $sec
-  fi
-}
 
 is_archive_valid() {
   local archive="$1"
@@ -421,7 +401,7 @@ download_file_attempt() {
     
     local speed_str=""
     if (( p_speed > 0 )); then
-      speed_str=$(format_speed_apt "$p_speed")
+      speed_str=$(format_speed "$p_speed")
     fi
     
     local eta_str=""
@@ -429,9 +409,9 @@ download_file_attempt() {
       local remaining=$((total_size - p_cur_size))
       if (( remaining > 0 )); then
         local eta=$((remaining / p_speed))
-        eta_str=$(format_time_apt "$eta")
+        eta_str=$(format_time "$eta")
       else
-        eta_str=$(format_time_apt 0)
+        eta_str=$(format_time 0)
       fi
     fi
     
@@ -1313,8 +1293,158 @@ install_cli() {
     if [[ "$ENV_TYPE" == "termux" ]]; then
       info "Patching... (this may take longer)"
 
+      cat << 'PYEOF' > "${BUILD_DIR}/agy_update.py"
+import sys, urllib.request, json, tarfile, pathlib, shutil, struct
+
+def patch_binary(src_path, dst_path):
+    data = bytearray(src_path.read_bytes())
+    def get(off): return struct.unpack_from("<I", data, off)[0]
+    def put(off, word): struct.pack_into("<I", data, off, word)
+    lo, hi = 0, len(data)
+    ubfx_count = lsl_count = mask_count = mmap_count = faccessat2_count = 0
+    for off in range(lo, hi, 4):
+        w = get(off)
+        if (w & 0x7F800000) == 0x53000000:
+            immr, imms = (w >> 16) & 0x3F, (w >> 10) & 0x3F
+            if immr == 42 and imms == 44:
+                put(off, (w & ~((0x3F << 16) | (0x3F << 10))) | (35 << 16) | (37 << 10)); ubfx_count += 1
+            elif immr == 22 and imms == 21:
+                put(off, (w & ~((0x3F << 16) | (0x3F << 10))) | (29 << 16) | (28 << 10)); lsl_count += 1
+    for off in range(lo, hi - 4, 4):
+        if get(off) == 0x92D3800A and get(off + 4) == 0xF2E0000A:
+            put(off, 0x9280000A); put(off + 4, 0xD35DFD4A); mask_count += 1
+    for off in range(lo, hi, 4):
+        if get(off) == 0xF2E00029: put(off, 0xD3596129); mmap_count += 1
+    word_rewrites = {
+        0xD2C20009: 0xD2C00409, 0xD2C2000A: 0xD2C0040A, 0xF2C20008: 0xF2DFF408,
+        0xF2C20009: 0xF2DFF409, 0xD2C10009: 0xD2C00209, 0xD2C1000A: 0xD2C0020A,
+        0xF2C38008: 0xF2DFF708, 0xF2C38009: 0xF2DFF709, 0x92560A6C: 0x925D0A6C,
+        0x92560A6A: 0x925D0A6A, 0xD2C3000D: 0xD2C0060D, 0xD2C3000C: 0xD2C0060C,
+        0xD2C08008: 0xD2C00108,
+    }
+    for off in range(lo, hi, 4):
+        w = get(off)
+        if w in word_rewrites: put(off, word_rewrites[w])
+    for off in range(0, len(data) - 12, 4):
+        if (get(off) == 0xAA1F03E5 and get(off + 4) == 0xAA1F03E6
+                and get(off + 8) == 0xD28036E0
+                and (get(off + 12) & 0xFC000000) == 0x94000000):
+            put(off + 8, 0xD2800600); faccessat2_count += 1
+    dst_path.write_bytes(data)
+    dst_path.chmod(0o755)
+
+def main():
+    target_dir = pathlib.Path(sys.argv[1])
+    current_version = sys.argv[2]
+    auto_confirm = sys.argv[3] == "1"
+    
+    print("[agy-termux] Querying latest upstream version...")
+    manifest_url = "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_arm64.json"
+    try:
+        req = urllib.request.Request(manifest_url, headers={"User-Agent": "Termux-Agy"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            manifest = json.loads(response.read().decode())
+    except Exception as e:
+        print(f"[agy-termux] Error checking for updates: {e}")
+        sys.exit(1)
+        
+    latest_version = manifest.get("version")
+    download_url = manifest.get("url")
+    
+    v_latest = latest_version.lstrip("v")
+    v_curr = current_version.lstrip("v")
+    
+    print(f"[agy-termux] Current version: v{v_curr}")
+    print(f"[agy-termux] Latest version : v{v_latest}")
+    
+    if v_latest == v_curr:
+        print("[agy-termux] You are already up to date.")
+        sys.exit(0)
+        
+    print(f"\nA new update (v{v_latest}) is available!")
+    if not auto_confirm:
+        try:
+            ans = input("[agy-termux] Would you like to update now? [Y/n]: ").strip().lower()
+            if ans not in ("", "y", "yes"):
+                print("[agy-termux] Update cancelled.")
+                sys.exit(0)
+        except KeyboardInterrupt:
+            print("\n[agy-termux] Update cancelled.")
+            sys.exit(0)
+            
+    print("[agy-termux] Downloading and applying update...")
+    tmp_dir = target_dir / "agy-update-tmp"
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    
+    target_va39 = target_dir / "agy.va39"
+    backup_va39 = target_dir / "agy.va39.bak"
+    backup_made = False
+
+    try:
+        tar_path = tmp_dir / "agy.tar.gz"
+        urllib.request.urlretrieve(download_url, tar_path)
+        with tarfile.open(tar_path, "r:gz") as tar:
+            tar.extractall(path=tmp_dir)
+        
+        extracted_bin = tmp_dir / "antigravity"
+        if not extracted_bin.exists():
+            extracted_bin = tmp_dir / "agy"
+        if not extracted_bin.exists():
+            for p in tmp_dir.iterdir():
+                if p.is_file() and p.name not in ("agy.tar.gz",):
+                    extracted_bin = p
+                    break
+                    
+        if not extracted_bin or not extracted_bin.exists():
+            raise FileNotFoundError("Could not find extracted binary in update archive.")
+        
+        print("[agy-termux] Patching binary...")
+        if target_va39.exists():
+            shutil.copyfile(target_va39, backup_va39)
+            backup_made = True
+
+        patch_binary(extracted_bin, target_va39)
+        if backup_made and backup_va39.exists():
+            backup_va39.unlink()
+        print("[agy-termux] Update completed successfully! Please restart the CLI.")
+
+    except BaseException as e:
+        print(f"\n[agy-termux] Update failed or interrupted: {e}")
+        if backup_made and backup_va39.exists():
+            try:
+                shutil.move(backup_va39, target_va39)
+                print("[agy-termux] Restored previous binary.")
+            except Exception as re:
+                print(f"[agy-termux] Critical: failed to restore backup: {re}")
+        sys.exit(1)
+        
+    finally:
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
+
+if __name__ == "__main__":
+    main()
+PYEOF
+
+        python3 -c "
+import pathlib
+py_path = pathlib.Path('${BUILD_DIR}/agy_update.py')
+py_data = py_path.read_bytes()
+hex_bytes = ', '.join(f'0x{b:02x}' for b in py_data)
+pathlib.Path('${BUILD_DIR}/agy_update_bytes.h').write_text(
+    '// clang-format off\n'
+    '#include <stddef.h>\n'
+    f'static const unsigned char agy_update_py[] = {{ {hex_bytes} }};\n'
+    f'static const size_t agy_update_py_len = {len(py_data)};\n'
+    '// clang-format on\n'
+)
+"
+
       cat << 'EOF' > "${BUILD_DIR}/agy_helper.c"
-#include "mmap_va39_fix_bytes.h"
+#include "agy_update_bytes.h"
+#include <asm/hwcap.h>
 #include <ctype.h>
 #include <errno.h>
 #include <libgen.h>
@@ -1322,149 +1452,355 @@ install_cli() {
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
+#include <sys/auxv.h>
 #include <unistd.h>
+
+#ifndef HWCAP_ATOMICS
+#define HWCAP_ATOMICS (1 << 8)
+#endif
 
 #ifndef AGY_TERMUX_VERSION
 #define AGY_TERMUX_VERSION "1.0.2"
 #endif
 
-// Returns the path of the unpacked .so on success, NULL on failure
-const char *unpack_mmap_fixer(void) {
-    static char unpacked_path[PATH_MAX];
+static int is_native_termux(void);
+static int require_resolver_config(const char *prefix);
+static int resolve_qemu_for_cpu(const char *prefix, char *qemu_path, size_t qemu_path_len, const char **qemu);
 
-    // Resolve temp directory priority: $TMPDIR -> /tmp
+static int agy_is_valid_release_tag(const char *tag) {
+    if (tag == NULL || tag[0] == '\0' || tag[0] == '-') {
+        return 0;
+    }
+
+    for (const unsigned char *cursor = (const unsigned char *)tag; *cursor != '\0'; cursor++) {
+        if (!isalnum(*cursor) && *cursor != '.' && *cursor != '_' && *cursor != '-') {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+static void print_update_usage(void) {
+    printf("Usage: agy update [options]\n\n"
+           "Options:\n"
+           "  -y, --yes, --auto  Apply updates without prompting\n"
+           "  -h, --help         Show this help message\n\n"
+           "Environment:\n"
+           "  AGY_AUTO_UPDATE=1  Apply updates without prompting\n");
+}
+
+static int should_perform_update(int auto_update) {
+    if (auto_update) {
+        printf("[agy-termux] Proceeding with automatic update (non-interactive)...\n");
+        return 1;
+    }
+
+    if (!isatty(STDIN_FILENO)) {
+        printf("[agy-termux] Error: standard input is not a TTY and auto-update is not enabled.\n");
+        printf("[agy-termux] Run `agy update -y` or set AGY_AUTO_UPDATE=1 for non-interactive "
+               "updates.\n");
+        return 0;
+    }
+
+    for (;;) {
+        printf("[agy-termux] Would you like to update now? [Y/n]: ");
+        (void)fflush(stdout);
+
+        char response_line[64] = {0};
+        if (fgets(response_line, sizeof(response_line), stdin) == NULL) {
+            return 0;
+        }
+        if (strchr(response_line, '\n') == NULL) {
+            int ch = 0;
+            while ((ch = getchar()) != '\n' && ch != EOF) {
+            }
+        }
+
+        if (response_line[0] == '\n' || response_line[0] == '\0') {
+            return 1;
+        }
+        if (response_line[0] == 'y' || response_line[0] == 'Y') {
+            return 1;
+        }
+        if (response_line[0] == 'n' || response_line[0] == 'N') {
+            return 0;
+        }
+
+        printf("[agy-termux] Invalid selection. Enter y or n.\n");
+    }
+}
+
+static int write_and_run_updater(const char *dir, const char *current_version, int auto_update) {
     const char *tmp = getenv("TMPDIR");
     if (!tmp || tmp[0] == '\0') {
         tmp = "/tmp";
     }
+    char py_path[PATH_MAX];
+    snprintf(py_path, sizeof(py_path), "%s/agy_update.py", tmp);
 
-    int written = snprintf(unpacked_path, sizeof(unpacked_path), "%s/libmmap_va39_fix.so", tmp);
-    if (written < 0 || written >= (int)sizeof(unpacked_path)) {
-        return NULL;
-    }
-
-    // Check if the file already exists and matches the expected size to avoid redundant writes
-    struct stat st;
-    if (stat(unpacked_path, &st) == 0 && st.st_size == (off_t)mmap_va39_fix_so_len) {
-        return unpacked_path;
-    }
-
-    // Unpack the bytes
-    FILE *fp = fopen(unpacked_path, "wb");
+    FILE *fp = fopen(py_path, "wb");
     if (!fp) {
-        return NULL;
+        fprintf(stderr, "[agy-termux] Error: Could not write temporary updater script.\n");
+        return 1;
     }
 
-    size_t written_bytes = fwrite(mmap_va39_fix_so, 1, mmap_va39_fix_so_len, fp);
-
-    if (fclose(fp) != 0 || written_bytes != mmap_va39_fix_so_len) {
-        unlink(unpacked_path);
-        return NULL;
+    size_t written_bytes = fwrite(agy_update_py, 1, agy_update_py_len, fp);
+    if (fclose(fp) != 0 || written_bytes != agy_update_py_len) {
+        unlink(py_path);
+        fprintf(stderr, "[agy-termux] Error: Could not write temporary updater script completely.\n");
+        return 1;
     }
 
-    // Ensure it is executable
-    if (chmod(unpacked_path, 0755) != 0) {
-        return NULL;
-    }
+    char cmd[PATH_MAX * 2 + 128];
+    snprintf(cmd, sizeof(cmd), "python3 \"%s\" \"%s\" \"%s\" %d", py_path, dir, current_version, auto_update);
 
-    return unpacked_path;
+    int status = system(cmd);
+    unlink(py_path);
+    return status;
+}
+
+static int is_update_help_flag(const char *arg) {
+    return strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0;
+}
+
+static int is_update_auto_flag(const char *arg) {
+    return strcmp(arg, "-y") == 0 || strcmp(arg, "--yes") == 0 || strcmp(arg, "--auto") == 0;
+}
+
+static int update_command_requests_help(int argc, char **argv) {
+    for (int i = 2; i < argc; i++) {
+        if (is_update_help_flag(argv[i])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int is_update_command(int argc, char **argv) {
+    return argc >= 2 && strcmp(argv[1], "update") == 0;
+}
+
+static int env_requests_auto_update(void) {
+    const char *env_auto = getenv("AGY_AUTO_UPDATE");
+    return env_auto != NULL && (strcmp(env_auto, "1") == 0 || strcmp(env_auto, "true") == 0);
+}
+
+static int handle_update_command(const char *dir, int argc, char **argv) {
+    int auto_update = env_requests_auto_update();
+    for (int i = 2; i < argc; i++) {
+        if (is_update_help_flag(argv[i])) {
+            print_update_usage();
+            return 0;
+        }
+        if (is_update_auto_flag(argv[i])) {
+            auto_update = 1;
+        }
+    }
+    
+    const char *prefix = getenv("PREFIX");
+    if (!prefix || prefix[0] == '\0') {
+        prefix = "/data/data/com.termux/files/usr";
+    }
+    const char *qemu = NULL;
+    char qemu_path[PATH_MAX];
+    resolve_qemu_for_cpu(prefix, qemu_path, sizeof(qemu_path), &qemu);
+    char cmd[PATH_MAX * 4 + 128];
+    if (qemu) {
+        snprintf(cmd, sizeof(cmd),
+                 "\"%s\" \"%s/glibc/lib/ld-linux-aarch64.so.1\" --library-path \"%s/glibc/lib\" \"%s/agy.va39\" --version 2>/dev/null",
+                 qemu, prefix, prefix, dir);
+    } else {
+        snprintf(cmd, sizeof(cmd),
+                 "\"%s/glibc/lib/ld-linux-aarch64.so.1\" --library-path \"%s/glibc/lib\" \"%s/agy.va39\" --version 2>/dev/null",
+                 prefix, prefix, dir);
+    }
+    FILE *fp = popen(cmd, "r");
+    static char version[128] = "0.0.0";
+    if (fp) {
+        char out[128];
+        if (fgets(out, sizeof(out) - 1, fp) != NULL) {
+            out[strcspn(out, "\r\n")] = '\0';
+            char *vptr = strchr(out, 'v');
+            if (vptr && isdigit(vptr[1])) {
+                strncpy(version, vptr, sizeof(version) - 1);
+            } else {
+                for (int i = 0; out[i] != '\0'; i++) {
+                    if (isdigit(out[i])) {
+                        strncpy(version, &out[i], sizeof(version) - 1);
+                        break;
+                    }
+                }
+            }
+        }
+        pclose(fp);
+    }
+    
+    return write_and_run_updater(dir, version, auto_update);
+}
+
+static int is_native_termux(void) {
+    const char *termux_version = getenv("TERMUX_VERSION");
+    const char *prefix = getenv("PREFIX");
+    char bin_path[PATH_MAX];
+    int written = 0;
+
+    if (termux_version == NULL || termux_version[0] == '\0') {
+        return 0;
+    }
+    if (prefix == NULL || prefix[0] == '\0') {
+        return 0;
+    }
+    written = snprintf(bin_path, sizeof(bin_path), "%s/bin", prefix);
+    if (written < 0 || written >= (int)sizeof(bin_path)) {
+        return 0;
+    }
+    if (access(bin_path, F_OK) != 0) {
+        return 0;
+    }
+    return 1;
+}
+
+static void print_non_termux_message(void) {
+    (void)fprintf(stderr, "[agy-termux] This standalone port is only for native Termux.\n"
+                          "[agy-termux] PRoot environments can use Google's official "
+                          "Antigravity CLI binary directly.\n"
+                          "[agy-termux] Install it with:\n"
+                          "  curl -fsSL https://antigravity.google/cli/install.sh | bash\n");
+}
+
+static int require_resolver_config(const char *prefix) {
+    char resolv_path[PATH_MAX];
+    int written = snprintf(resolv_path, sizeof(resolv_path), "%s/etc/resolv.conf", prefix);
+    if (written < 0 || written >= (int)sizeof(resolv_path)) {
+        return 0;
+    }
+    if (access(resolv_path, R_OK) != 0) {
+        (void)fprintf(stderr, "[agy-termux] Missing resolver configuration: %s\n", resolv_path);
+        (void)fprintf(stderr, "[agy-termux] Install it with: pkg install resolv-conf\n");
+        (void)fprintf(stderr, "[agy-termux] Without this file, login and OAuth network requests may fail.\n");
+        return 0;
+    }
+    return 1;
+}
+
+static int resolve_qemu_for_cpu(const char *prefix, char *qemu_path, size_t qemu_path_len,
+                                const char **qemu) {
+    unsigned long hwcap = getauxval(AT_HWCAP);
+    *qemu = NULL;
+    if ((hwcap & HWCAP_ATOMICS) != 0) {
+        return 1;
+    }
+    int qemu_written = snprintf(qemu_path, qemu_path_len, "%s/bin/qemu-aarch64", prefix);
+    if (qemu_written > 0 && (size_t)qemu_written < qemu_path_len && access(qemu_path, F_OK) == 0) {
+        *qemu = qemu_path;
+        return 1;
+    }
+    (void)fprintf(stderr, "[agy-termux] CPU lacks LSE atomics, and qemu-aarch64 was not found.\n");
+    (void)fprintf(stderr, "[agy-termux] You may need to install the qemu-user-aarch64 package.\n");
+    return 0;
 }
 
 int main(int argc, char **argv) {
-    // 1. Consolidate variables at top to avoid shadowing (-Wshadow)
     char exec_path[PATH_MAX];
-    char lib_path[PATH_MAX * 3];
+    char lib_path[PATH_MAX + 16];
     char patched_bin[PATH_MAX];
-    const char *loader = "/data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1";
+    char dynamic_loader[PATH_MAX];
+    char cert_path[PATH_MAX];
+    char prefix_path[PATH_MAX];
+    char qemu_path[PATH_MAX];
+    const char *prefix = getenv("PREFIX");
+    const char *loader = NULL;
     const char *dir = NULL;
-    const char *fixer_path = NULL;
+    const char *qemu = NULL;
+    const char *exec_target = NULL;
+    const char *exec_error = NULL;
     char **new_argv = NULL;
-    int is_termux = 0;
     int arg_idx = 0;
     int written = 0;
     ssize_t read_len = 0;
 
-    // Detect if running in native Termux
-    is_termux = (access("/data/data/com.termux/files/usr/bin", F_OK) == 0);
-
-    // 2. Clear conflicting Android Bionic preloads and search paths
-    if (is_termux) {
-        unsetenv("LD_PRELOAD");
+    if (!is_native_termux()) {
+        print_non_termux_message();
+        return 1;
     }
+
+    if (!resolve_qemu_for_cpu(prefix, qemu_path, sizeof(qemu_path), &qemu)) {
+        return 1;
+    }
+    written = snprintf(prefix_path, sizeof(prefix_path), "%s", prefix);
+    if (written < 0 || written >= (int)sizeof(prefix_path)) {
+        return 1;
+    }
+    written = snprintf(dynamic_loader, sizeof(dynamic_loader), "%s/glibc/lib/ld-linux-aarch64.so.1",
+                       prefix_path);
+    if (written < 0 || written >= (int)sizeof(dynamic_loader)) {
+        return 1;
+    }
+    loader = dynamic_loader;
+    exec_target = loader;
+    exec_error = "[agy-termux] execv failed";
+
+    if (access(loader, F_OK) != 0) {
+        (void)fprintf(stderr, "[agy-termux] Missing Termux glibc loader: %s\n", loader);
+        (void)fprintf(stderr, "[agy-termux] You may need to install the glibc-repo and glibc packages.\n");
+        return 1;
+    }
+
+    unsetenv("LD_PRELOAD");
     unsetenv("LD_LIBRARY_PATH");
 
-    // 3. Set dynamic Go resolver and SSL configurations
     setenv("GODEBUG", "netdns=cgo", 1);
-    if (is_termux) {
-        setenv("SSL_CERT_FILE", "/data/data/com.termux/files/usr/etc/tls/cert.pem", 1);
-    } else if (access("/etc/ssl/certs/ca-certificates.crt", F_OK) == 0) {
-        setenv("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt", 1);
+    written = snprintf(cert_path, sizeof(cert_path), "%s/etc/tls/cert.pem", prefix_path);
+    if (written < 0 || written >= (int)sizeof(cert_path)) {
+        return 1;
     }
+    setenv("SSL_CERT_FILE", cert_path, 1);
 
-    // 4. Resolve executable directory
     read_len = readlink("/proc/self/exe", exec_path, sizeof(exec_path) - 1);
-    if (read_len == -1) {
+    if (read_len < 0 || read_len >= (ssize_t)sizeof(exec_path)) {
         return 1;
     }
     exec_path[read_len] = '\0';
     dir = dirname(exec_path);
 
-    // 6. Handle interposer unpacking in non-Termux (chroot) environments
-    if (!is_termux) {
-        fixer_path = unpack_mmap_fixer();
-        if (!fixer_path) {
-            (void)fprintf(stderr,
-                          "[ERR] Failed to extract PRoot compatibility layer. Please check /tmp "
-                          "permissions.\n");
+    if (is_update_command(argc, argv)) {
+        if (update_command_requests_help(argc, argv)) {
+            return handle_update_command(dir, argc, argv);
+        }
+        if (!require_resolver_config(prefix_path)) {
             return 1;
         }
+        return handle_update_command(dir, argc, argv);
     }
 
-    // 7. Resolve dynamic loader path
-    if (access(loader, F_OK) != 0) {
-        loader = "/lib/ld-linux-aarch64.so.1";
+    if (!require_resolver_config(prefix_path)) {
+        return 1;
     }
 
-    // 8. Construct relocatable library search path
-    if (is_termux) {
-        written = snprintf(lib_path, sizeof(lib_path),
-                           "%s/../lib:/data/data/com.termux/files/usr/glibc/lib", dir);
-    } else {
-        written = snprintf(lib_path, sizeof(lib_path),
-                           "%s/../lib:/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib64:/"
-                           "usr/lib64:/lib:/usr/lib",
-                           dir);
-    }
+    written = snprintf(lib_path, sizeof(lib_path), "%s/glibc/lib", prefix_path);
     if (written < 0 || written >= (int)sizeof(lib_path)) {
         return 1;
     }
 
-    // Construct path to the patched binary
     written = snprintf(patched_bin, sizeof(patched_bin), "%s/agy.va39", dir);
     if (written < 0 || written >= (int)sizeof(patched_bin)) {
         return 1;
     }
 
-    // 9. Construct new argument array
-    // We allocate enough space for: loader + "--preload" + fixer_path + "--library-path" + lib_path
-    // + patched_bin + user args + NULL
-    int new_argc = argc + 8;
+    int new_argc = argc + 6;
     new_argv = malloc((size_t)new_argc * sizeof(*new_argv));
     if (!new_argv) {
         return 1;
     }
 
     arg_idx = 0;
-    new_argv[arg_idx++] = (char *)loader;
-
-    // Inject the interposer dynamic library as a preload if unpacked successfully
-    if (fixer_path) {
-        new_argv[arg_idx++] = "--preload";
-        new_argv[arg_idx++] = (char *)fixer_path;
+    if (qemu) {
+        new_argv[arg_idx++] = (char *)qemu;
+        exec_target = qemu;
+        exec_error = "[agy-termux] execv (qemu) failed";
     }
-
+    new_argv[arg_idx++] = (char *)loader;
     new_argv[arg_idx++] = "--library-path";
     new_argv[arg_idx++] = lib_path;
     new_argv[arg_idx++] = patched_bin;
@@ -1474,30 +1810,13 @@ int main(int argc, char **argv) {
     }
     new_argv[arg_idx] = NULL;
 
-    // 10. Execute the glibc dynamic loader
-    if (execv(loader, new_argv) == -1) {
-        perror("[agy-termux] execv failed");
+    if (execv(exec_target, new_argv) == -1) {
+        perror(exec_error);
         free(new_argv);
         return 1;
     }
 }
 EOF
-
-        python3 -c "
-import pathlib
-so_path = pathlib.Path('${BUILD_DIR}/libmmap_va39_fix.so')
-if not so_path.exists():
-    raise FileNotFoundError('libmmap_va39_fix.so not found')
-so_data = so_path.read_bytes()
-hex_bytes = ', '.join(f'0x{b:02x}' for b in so_data)
-pathlib.Path('${BUILD_DIR}/mmap_va39_fix_bytes.h').write_text(
-    '// clang-format off\n'
-    '#include <stddef.h>\n'
-    f'static const unsigned char mmap_va39_fix_so[] = {{ {hex_bytes} }};\n'
-    f'static const size_t mmap_va39_fix_so_len = {len(so_data)};\n'
-    '// clang-format on\n'
-)
-"
 
         if ! clang -O2 -I"${BUILD_DIR}" -o "${BUILD_DIR}/agy" "${BUILD_DIR}/agy_helper.c"; then
           die "CLI: Failed to compile native C bootstrapper."
@@ -2035,9 +2354,6 @@ CURRENT_TASK=0
 # Compile shared compatibility layer if needed
 NEED_MMAP_COMPILATION=0
 if [[ $RUN_IDE_INSTALL -eq 1 || $RUN_V2_INSTALL -eq 1 ]]; then
-  NEED_MMAP_COMPILATION=1
-fi
-if [[ $RUN_CLI_INSTALL -eq 1 && "$ENV_TYPE" == "termux" ]]; then
   NEED_MMAP_COMPILATION=1
 fi
 
