@@ -18,6 +18,7 @@ pkg install -y tur-repo glibc-repo
 pkg install -y glibc glibc-runner
 
 BIN_DIR="$HOME/.local/bin"
+mkdir -p "$BIN_DIR"
 
 TMP_BASE="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
 mkdir -p "$TMP_BASE"
