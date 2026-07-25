@@ -12,7 +12,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "==> Checking and preparing Termux host dependencies..."
-pkg update -y
+yes|pkg up
 pkg install -y curl bash ca-certificates
 pkg install -y tur-repo glibc-repo
 pkg install -y glibc glibc-runner
