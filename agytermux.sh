@@ -12,10 +12,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "==> Checking and preparing Termux host dependencies..."
-yes|pkg up
-pkg install -y curl bash ca-certificates
-pkg install -y tur-repo glibc-repo
-pkg install -y glibc glibc-runner
+apt update && apt upgrade -y
+apt install -y curl bash ca-certificates
+apt install -y tur-repo glibc-repo
+apt install -y glibc glibc-runner
 
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
