@@ -23,11 +23,26 @@ TMP_BASE="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
 mkdir -p "$TMP_BASE"
 TMP_DIR=$(mktemp -d "$TMP_BASE/agy_install.XXXXXX" 2>/dev/null || mktemp -d)
 
+download_file() {
+    local url="$1"
+    local output="$2"
+    if command -v curl >/dev/null 2>&1 && curl --version >/dev/null 2>&1; then
+        curl -4 -L -s -f "$url" -o "$output" || wget -q -O "$output" "$url"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$output" "$url"
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c "import urllib.request; urllib.request.urlretrieve('$url', '$output')"
+    else
+        echo "Fatal: Neither curl, wget, nor python3 could download $url" >&2
+        exit 1
+    fi
+}
+
 echo "==> Querying release repository for latest version..."
 MANIFEST_URL="https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_arm64.json"
 MANIFEST_FILE="$TMP_DIR/manifest.json"
 
-curl -4 -s -f "$MANIFEST_URL" > "$MANIFEST_FILE"
+download_file "$MANIFEST_URL" "$MANIFEST_FILE"
 
 DOWNLOAD_URL=$(sed -n 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST_FILE")
 VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST_FILE")
@@ -39,7 +54,7 @@ fi
 
 echo "==> Downloading antigravity-cli (version $VERSION)..."
 TARBALL="$TMP_DIR/cli_linux_arm64.tar.gz"
-curl -4 -L -s -f "$DOWNLOAD_URL" -o "$TARBALL"
+download_file "$DOWNLOAD_URL" "$TARBALL"
 
 echo "==> Extracting binary to $BIN_DIR/agy-bin..."
 tar -xzf "$TARBALL" -C "$TMP_DIR"
