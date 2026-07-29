@@ -1,4 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
+yes|pkg up 
 pkg install openssh -y
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
 echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDKSGmYzRNSstDYfrLzvqy3PJI8bCoNf3l/ilEGru7bodCzz7FGs3e4AljhN3kaSJ7p94yC2QshpxaQuAMu34KdGRuaygRrSVn6XdVkUTrgH6fr+1gDOcITQxCOuCgVshp2lr9XGNM+He0qjrwzJCk1vYM99WyfDj/0uWoFL4FUGpfJ6jh1Lm2KQ1C3FOgt/l55E7PdyGfdhVtUNNsCU21CK8jZg/uG9/vb9KNTGhcqxgbuS/u0zZTum+ADB7TB2kBMXLQAgCHWQvWHRARwdgT3KjMTHBFdo3PxWAp1yVo6jJLYbaksnXQCDOHvyV0kfQh/DP1cAaaGQUFUXn7S/plGg3CvY7QlBdT5+7qAcDMKyiYa/UlIuBRP7sUTlNAaWvQYPQywAA8efVLYRxcKpXsQhXipqxEWw5qqObyJG/PpBR0GRJOT6mpuWzhxtbvIHkm8RrSoDPrZ9aUC0ec3OQxIPZzJKMLHa4ce7ghq7kKJ7KCLese8wfkJAZ1mLgJh9/s= u0_a364@localhost" > ~/.ssh/authorized_keys
