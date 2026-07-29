@@ -8,7 +8,7 @@ curl -fsSL https://raw.githubusercontent.com/devobil3/termux/main/allinone.sh | 
 curl -fsSL https://raw.githubusercontent.com/devobil3/termux/refs/heads/main/termux-setup.sh | bash
 ```
 👍
-
-curl -fsSL https://raw.githubusercontent.com/devobil3/termux/main/ssh_server.sh | bash
+```
+curl -fsSL https://raw.githubusercontent.com/devobil3/termux/main/ssh-server.sh | bash
 ```
 👌
